@@ -1,0 +1,12 @@
+cords
+0P \?
+	1P "Silly" A 1 A \?
+	1 0 1 A 1 AA
+	1 0 2 A 2 AA
+	1 0 3 A 3 AA
+	0 4 A 4 A
+\?
+	AAAAA
+\?
+	eval
+\?

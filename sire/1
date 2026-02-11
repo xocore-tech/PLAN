@@ -1,0 +1,36 @@
+#### sire_00_boot
+
+
+= (Pin i)            | ##0 i
+
+
+= (Case p l a z m o) | ##3 p l a z m o
+
+
+= (Law n a b)        | ##1 n a b
+
+
+= (Inc m)            | ##2 m
+
+
+= (Die x)            | ##die x  ; Calling a primop above 3 is a crash.
+
+
+= (PlanCase p l a n x) | Case p l a n _&n x
+
+
+= (NatCase z p x)      | Case _&z (_ _ _)&z (_ _)&z z p x
+
+
+= (Force x)            | Law 0 1 0-x 0
+
+
+= (Seq x y)            | NatCase y _&y x
+
+
+= (DeepSeq x y)        | Seq (Force x) y
+
+
+= (Trace x y)          | DeepSeq x y
+
+main="It works!"

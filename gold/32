@@ -1,0 +1,12 @@
+((((((#0 ((((#0 1) %sireRepl) 6) ((1 (..)) (..)))) ((((#0 1) 0) 1) (0 1))) 0) ((((((0 1) 0) 0) 0) 0) ((((%NEST (..)) 124) 0) 0))) (((0 %REPL) 1) %WOODS)) 0)
+sireRepl{0(1)=>[1] 0 ((((([1] 0) 0) 0) 0) ((%NEST[#%rex 124] 0) 0)) (((0 %REPL) 1) %WOODS) 0}
+sireRepl[0(1)=>[1] 0 [1 0 0 0 0 %NEST[#%rex 124 0 0]] [%REPL 1 %WOODS] 0]
+(sireRepl[0(1)=>[1] 0 [1 0 0 0 0 %NEST[#%rex 124 0 0]] [%REPL 1 %WOODS] 0] "
+####m
+
+Foo=(Foo x ? (a @ 3)(x x a))
+
+nineNineThree=(Foo 9)
+")
+[0x15d5d3320395b39207d5d33205d3120315b5b2031206f6f46257b5b sireRepl[0(1) 6 [3 109 [..] 0 5 %SHUT[..]] [%REPL 7 %WOODS] 0]]
+[0x15d5d3320395b39207d5d33205d3120315b5b2031206f6f46257b5b sireRepl[0(1) 6 [3 109 [%Foo #[1 %Foo(1) 70[[0 0 0 %Foo 1 76[75[3] 65[65[86[1] 86[1]] 86[0]]]]] 109 %Foo 0] 0 [%nineNineThree #[2 9[9 3] 65[71[#[1 %Foo(1) 70[[0 0 0 %Foo 1 76[75[3] 65[65[86[1] 86[1]] 86[0]]]]] 109 %Foo 0]] 75[9]] 109 %nineNineThree 0] 0 0]] 0 5 %SHUT[#%rex 61 [%WORD[#%rex %nineNineThree 0] %NEST[#%rex 124 [%WORD[#%rex %Foo 0] %WORD[#%rex 57 0]] 0]] 0]] [%REPL 7 %WOODS] 0]]

@@ -1,0 +1,4100 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### blitz <- newboot
+
+:| newboot
+
+E=0
+Z=1
+C=2
+A=3
+
+; <0> -> H[0]
+; <3> -> (<0> 3) -> H[0] A[3] C
+; <x> -> (<0> 3) -> [H[0] (ival x ~[C])]
+;
+; {n a b} -> (| H | A 1 | C | go n | A a | go b
+; <3> -> (<0> 3) -> H A[3] C
+; <x> -> (<0> 3) -> [H (ival x ~[C])]
+;
+; 0 _[x y z] -> x C y C z C
+;
+; f[x y z] -> f x C y C z C
+
+= (ipin ival k item)
+| Ifz item Z-k
+| Z-(ival item C-k)
+
+= (ilaw ival k n a b)
+| Z | A 1 | C | A n | C | A a | C | ival b C-k
+
+= (irow ival o i k)
+| If (Ge i Sz-o) k
+| ival (Ix i o) C-(irow ival o Inc-i k)
+
+= (iapp ival o k _ _)
+| ival Hd-o (irow ival o 0 k)
+
+= (ival o k)
+@ p ipin-ival-k
+@ l ilaw-ival-k
+@ a iapp-ival-o-k
+@ z (A o k)
+@ m _&((A o k))
+| ##3 p l a z m o
+
+(succ x)=(##2 x)
+
+a=0
+(ival 3       E =?= (| A 3 | E))
+a=0
+(ival ##3     E =?= (| Z | A 3 | C | E))
+a=0
+(ival succ    E =?= (| Z | Z | A 1 | C | A "succ" | C | A 1 | C | A 0 | Z | A 2 | C | C | A 1 | C | C | C E))
+a=0
+(ival (3 4)   E =?= (| A 3 | A 4 | C | E))
+a=0
+(ival (3 4 5) E =?= (| A 3 | A 4 | C | A 5 | C | E))
+a=0
+(ival x&x     E =?= (| Z | A 1 | C | A 0 | C | A 1 | C | A 1 | C | E))
+a=0
+
+(cell [x [f more]])=[f-x more]
+
+= (rebuild !stack code)
+| Ix Hd-code
+++ stack
+++ @ [k]   code | rebuild [##0 stack] k
+++ @ [k]   code | rebuild cell-stack  k
+++ @ [n k] code | rebuild [n stack]   k
+
+( rebuild 0 ival-(##3 1)-E     =?=  [(##3 1) 0]    )
+( rebuild 0 ival-(##3)-E       =?=  [##3 0]        )
+( rebuild 0 ival-(x&x)-E       =?=  [x&x 0]        )
+( rebuild 0 ival-Inc-E         =?=  [Inc 0]        )
+( rebuild 0 ival-(I x ?? x)-E  =?=  [(I x ?? x) 0] )
+
+= (count !acc code)
+| Ix Hd-code
+++ acc
+++ @ [k]   code | count acc     k
+++ @ [k]   code | count Inc-acc k
+++ @ [n k] code | count acc     k
+
+z=0
+( count 0 ival-Inc-E       =?= 1        )
+a=0
+( count 0 ival-succ-E      =?= 8        )
+b=0
+( count 0 ival-Add-E       =?= 90       )
+c=0
+( count 0 ival-count-E     =?= 1486     )
+;d=0
+;( count 0 ival-ingestAst-E =?= "#~"     )
+;e=0
+;( count 0 ival-execBind-E  =?= 270590   )
+;f=0
+;( count 0 ival-doDefine-E  =?= 4230040  )
+;g=0
+;( count 0 ival-main-E      =?= 30512209 )
+;h=0
+;
+; main=0
+
+; Haskell Sire           = 1m52s (0.257s without the counts)
+; Seed Sire (Plan)       = 2m52s (8.823s without the counts)
+; Seed Sire (Plan+bloom) = 2m33s (8.823s without the counts)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= sbEmpty        | 0
+= (**sbSing k v) | 1 k v 0 0
+
+sbSize=Hd
+
+= (sb k v l r)
+@ sz | Inc (Add sbSize-l sbSize-r)
+| sz k v l r
+
+= (**sbOpen x k)
+| **k (Hd x) (Ix 0 x) (Ix 1 x) (Ix 2 x) (Ix 3 x)
+
+= (**sbCase x empty node)
+| Ifz x empty
+| sbOpen x node
+
+L=sbSing
+N=sb
+E=0
+
+= (singleL key val a right)
+: _ koy vol b c < sbOpen right
+| sb koy vol (sb key val a b) c
+
+= (singleR key val left c)
+: _ koy vol a b < sbOpen left
+| sb koy vol a (sb key val b c)
+
+= (doubleL key val a right)
+: _ rkey rval son d < sbOpen right
+: _ skey sval b   c < sbOpen son
+| sb skey sval (sb key val a b) (sb rkey rval c d)
+
+= (doubleR key val left d)
+: _ lkey lval a son < sbOpen left
+: _ skey sval b c   < sbOpen son
+| sb skey sval (sb lkey lval a b) (sb key val c d)
+
+=?= (singleL 7 7 E (L 8 8))
+    (N 8 8 L-7-7 E)
+
+=?= (singleR 7 7 (L 6 6) E)
+    (N 6 6 E L-7-7)
+
+=?= (singleL 7 7 E (N 8 8 E L-9-9))
+    (N 8 8 L-7-7 L-9-9)
+
+=?= (singleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 8 8 (N 5 5 E L-7-7) L-9-9)
+
+=?= (doubleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 7 7 L-5-5 (N 8 8 E L-9-9))
+
+=?= (doubleR 5 5 (N 2 2 L-1-1 L-3-3) E)
+    (N 3 3 (N 2 2 L-1-1 E) L-5-5)
+
+= (rotateL k v l r)
+: rz _ _ rl rr < sbOpen r
+| If (Lt sbSize-rl (Mul 2 sbSize-rr)) | singleL k v l r
+| else                                 | doubleL k v l r
+
+= (rotateR k v l r)
+: lz _ _ ll lr < sbOpen l
+| If (Lt sbSize-lr (Mul 2 sbSize-ll)) | singleR k v l r
+| else                                 | doubleR k v l r
+
+= (balance k v l r)
+@ lsz | sbSize l
+@ rsz | sbSize r
+@ xsz | Inc (Add lsz rsz)
+@ top | xsz k v l r
+| If (Le (Add lsz rsz) 1) | top
+| If (Ge rsz (Mul 4 lsz)) | rotateL k v l r
+| If (Ge lsz (Mul 4 rsz)) | rotateR k v l r
+| else                    | top
+
+= (sbInsert key val x)
+: xsz xkey xval left right < sbCase x (sbSing key val)
+| Ix (Compare key xkey)
+++ balance xkey xval (sbInsert key val left) right
+++ xsz key val left right
+++ balance xkey xval left (sbInsert key val right)
+
+= (sbSearch key tree)
+: _ k v l r < sbCase tree NONE
+| Ix (Compare key k) (sbSearch key l, SOME v, sbSearch key r)
+
+= (fromList l)
+^ _ 0 l
+? (go !acc l)
+: [k v] l < lcase l acc
+| go (sbInsert k v acc) l
+
+(derp n)=(| fromList | stream | gen n x&((xx @ Mul Inc-x 11)(xx, xx)))
+
+(sbSearch 11 derp-0 =?= NONE)
+(sbSearch 11 derp-1 =?= SOME-11)
+(sbSearch 11 derp-2 =?= SOME-11)
+(sbSearch 11 derp-3 =?= SOME-11)
+(sbSearch 11 derp-4 =?= SOME-11)
+(sbSearch 11 derp-5 =?= SOME-11)
+(sbSearch 11 derp-6 =?= SOME-11)
+(sbSearch 66 derp-6 =?= SOME-66)
+(sbSearch 77 derp-6 =?= NONE)
+
+=?= derp-2 (N 11 11 E (L 22 22))
+=?= derp-3 (N 22 22 (L 11 11) (L 33 33))
+=?= derp-4 (N 22 22 (L 11 11) (N 33 33 E (L 44 44)))
+=?= derp-5 (N 22 22 (L 11 11) (N 44 44 (L 33 33) (L 55 55)))
+
+(NN x l r)=(N x x l r)
+(LL x)=(L x x)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-55 E LL-66))
+    (derp-6)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-66 LL-55 LL-77))
+    (derp-7)
+
+=?= (sbInsert 2 22 0)
+    (sbSing 2 22)
+
+ex=(NN-4 LL-2 LL-6)
+
+=?= (sbInsert 4 {four} ex)
+    (N 4 {four} (L 2 2) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)
+    (N 4 4 (L 2 {two}) (L 6 6))
+
+=?= (sbInsert 6 {six} ex)
+    (N 4 4 (L 2 2) (L 6 {six}))
+
+=?= (sbInsert 1 {one} ex)
+    (N 4 4 (N 2 2 (L 1 {one}) E) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)   | NN-4 (L 2 {two})            | LL-6
+=?= (sbInsert 3 {three} ex) | NN-4 (NN-2 E (L 3 {three})) | LL-6
+=?= (sbInsert 5 {fiv} ex)   | NN-4 (NN-2 E E)             | NN-6 L-5-{fiv} E
+=?= (sbInsert 6 {six} ex)   | NN-4 LL-2                   | L-6-{six}
+=?= (sbInsert 7 {sev} ex)   | NN-4 LL-2                   | NN-6 E L-7-{sev}
+
+= (deleteFindMax t)
+: _ k v l r < sbOpen t
+| Ifz r [[k v] l]
+@ [km r2] deleteFindMax-r
+| (km, balance k v l r2)
+
+= (deleteFindMin t)
+: _ k v l r < sbOpen t
+| Ifz l [[k v] r]
+@ [km l2] deleteFindMin-l
+| (km, balance k v l2 r)
+
+= (glue l r)
+| Ifz l r
+| Ifz r l
+| If (Gt sbSize-l sbSize-r) ([[km m] l2] @ deleteFindMax l)(balance km m l2 r)
+| else                      ([[km m] r2] @ deleteFindMin r)(balance km m l r2)
+
+= (sbAlter f key x)
+@ emptyCase | ocase f-NONE sbEmpty x&(sbSing key x)
+: xsz xkey xval l r < sbCase x emptyCase
+| Ix (Compare key xkey)
+++ balance xkey xval (sbAlter f key l) r
+++  : newval < ocase f-(SOME xval) (glue l r)
+    | xsz xkey newval l r
+++ balance xkey xval l (sbAlter f key r)
+
+; What is alterKnown?  Oh, where we know that the key is know to be there (so
+; the function is passed the value not wrapped in a Maybe)
+
+= (sbAlterKnown f key x)
+: xsz xkey xval l r < sbCase x sbEmpty
+| Ix (Compare key xkey)
+++ balance xkey xval (sbAlterKnown f key l) r
+++ xsz xkey f-xval l r
+++ balance xkey xval l (sbAlterKnown f key r)
+
+= (sbDel key tree)
+: xsz xkey xval l r < sbCase tree tree
+| Ix (Compare key xkey)
+++ balance xkey xval (sbDel key l) r
+++ glue l r
+++ balance xkey xval l (sbDel key r)
+
+(**sbSearchCase k t nf f)=(ocase (sbSearch k t) nf f)
+
+= (pack f x) | Add (Lsh f 32) x
+= (unpack v) | (Rsh v 32, Word32 v)
+
+= (newNat igo key nats apps table stack nat code)
+@ nats  | sbInsert nat key nats
+@ table | sbInsert key nat table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldNat igo key nats apps table stack nat code)
+@ res   | sbSearch nat nats
+@ v     | fst res
+@ stack | [v stack]
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (insNat igo [key nats apps table stack] nat code)
+@ res     | sbSearch nat nats
+| Ifz res | newNat igo key nats apps table stack nat code
+| else    | oldNat igo key nats apps table stack nat code
+
+= (newApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ apps  | sbInsert htw key   apps
+@ table | sbInsert key [h t] table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ res   | sbSearch htw apps
+@ stack | (Ix 0 res, stack)
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (rawInsApp igo key nats apps table h t stack code)
+@ htw     | pack h t
+@ res     | sbSearch htw apps
+| Ifz res | newApp igo key nats apps table h t stack code
+| else    | oldApp igo key nats apps table h t stack code
+
+= (insApp igo [key nats apps table [t [h stack]]] code)
+| **rawInsApp igo key nats apps table h t stack code
+
+= (insPin igo [key nats apps table [i stack]] code)
+| **rawInsApp igo key nats apps table 0 i stack code
+
+= (igo !st code)
+| Ix Hd-code
+++ st
+++ @ [c]   code (insPin igo st c)
+++ @ [c]   code (insApp igo st c)
+++ @ [n c] code (insNat igo st n c)
+
+= (intern x)
+| igo [1 0 0 0 0] (ival x E)
+
+(numAtoms x)=(| Hd | snd | intern x)
+
+; ( (| intern 0 0 0 0 0 | ival (0 1) E) =?= 1 )
+
+= (tables x)
+@ [key nats apps table stack] (intern x)
+++ stack
+++ bstSave nats
+++ bstSave apps
+++ bstSave table
+
+([0 1] =?= unpack (pack 0 1))
+([2 3] =?= unpack (pack 2 3))
+([1 1] =?= unpack (pack 1 1))
+([0 2] =?= unpack (pack 0 2))
+([3 2] =?= unpack (pack 3 2))
+
+;=?= (tables ((0 1) 2))
+; ++ [5 0]
+; ++ [0 1 1 2 2 4]
+; ++ [pack-1-2 3 pack-3-4 5]
+; ++ [1 0  2 1  3 [1 2]  4 2  5 [3 4]]
+
+; '] 0 = 0
+; '] 1 = 1
+; '] 2 = [1 1]
+; '] 3 = [0 2]
+; '] 4 = [3 2]
+
+;=?= (tables (0 1-1 1-1))
+; ++ [5 0]
+; ++ [0 1 1 2]
+; ++ [pack-2-2 3 pack-1-3 4 pack-4-3 5]
+; ++ [1 0 2 1 3 [2 2] 4 [1 3] 5 [4 3]]
+
+al=0
+; numAtoms 0         =?= 1   )
+ba=0
+; numAtoms ##0       =?= 0   )
+ca=0
+; numAtoms ##1       =?= 1   )
+da=0
+; numAtoms Inc       =?= 1   )
+el=0
+; numAtoms (0 1 2 3) =?= 4   )
+fa=0
+; numAtoms Add       =?= 8   )
+ga=0
+; numAtoms count     =?= 18  ) ; 12s
+; numAtoms rebuild   =?= 19  ) ; 13.5s
+; numAtoms ival      =?= 26  ) ; 15s
+ha=0
+; numAtoms ingestAst =?= 93  ) ; 43s (6s!!!)
+il=0
+; numAtoms execBind  =?= 132 ) ; 33s (was 148)
+ja=0
+; Nil (numAtoms doDefine)  =?= 0 ) ; 7m50s
+ka=0
+; Nil (numAtoms main)      =?= 0 ) ; 54m52s
+la=0
+
+= (lput i v !xs)
+| And xs
+@ [x xs] xs
+| Ifz i [v xs]
+| (x, (lput Dec-i v xs))
+
+= (lhasIx i !l)      | And l | Or Nil-i | lhasIx Dec-i snd-l
+= (barImplode bytes) | foldr (b bs)&(Add Word8-b Lsh-bs-8) 1 bytes
+= (barExplode bar)   | gen (Dec Bytes-bar) i&(Load8 i bar)
+= (IsBuf n)          | Eq 1 (Trunc 3 Bits-n)
+= (BufSz n)          | Rsh (Dec Bits-n) 3
+
+( BufSz 256   =?= 1 )
+( BufSz 65536 =?= 2 )
+
+= (lbreak n xs)
+^ _ n xs 0
+? (go n xs acc)
+@ end (acc, xs)
+| Ifz n end
+| Ifz xs end
+@ [x xs] xs
+| go Dec-n xs acc-x
+
+( lbreak 0 [1 [2 [3 0]]] =?= ( [],      [1 [2 [3 []]]] ) )
+( lbreak 1 [1 [2 [3 0]]] =?= ( [1],     [2 [3 []]]     ) )
+( lbreak 2 [1 [2 [3 0]]] =?= ( [1 2],   [3 []]         ) )
+( lbreak 3 [1 [2 [3 0]]] =?= ( [1 2 3], []             ) )
+
+( lix 0 [5 [6 0]] =?= 5 )
+( lix 1 [5 [6 0]] =?= 6 )
+( lix 2 [5 [6 0]] =?= 0 )
+
+( lput 0 9 [5 [6 0]] =?= [9 [6 0]] )
+( lput 1 9 [5 [6 0]] =?= [5 [9 0]] )
+( lput 2 9 [5 [6 0]] =?= [5 [6 0]] )
+
+(lhasIx 0 0         =?= 0)
+(lhasIx 0 [0 0]     =?= 1)
+(lhasIx 1 [0 0]     =?= 0)
+(lhasIx 1 [0 [0 0]] =?= 1)
+(lhasIx 2 [0 [0 0]] =?= 0)
+
+(barImplode ["a" "b" "c"] =?= Set 24 "abc")
+
+(IsBuf 1 =?= 1)
+(IsBuf 2 =?= 0)
+(IsBuf 255 =?= 0)
+(IsBuf 256 =?= 1)
+(IsBuf 511 =?= 1)
+(IsBuf 512 =?= 0)
+
+(OrHack x y)=(If x x y) ; Haskell jet for Or is wrong, this is a workaround
+
+;; Capabilities ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+BORROW=1             ; read-only
+SHARE=2              ; read-leak
+UNIQUE=3             ; read-write-leak
+(KNOWN n)=(Add 4 n)  ; read-leak (known constant)
+
+; ') A slot type is one of the above as the tag, and a sorted array of
+; ') aliases (offsets pointing up the stack) as the closure parameter.
+; ')
+; ') A stack type is a list of the above, where all aliases are offsets
+; ') which resolve to a UNIQUE slot.
+
+(isKnown c)=(Ge c 3)
+(knownVal k)=(Sub k 4)
+
+(1 =?= isKnown UNIQUE)
+(1 =?= isKnown KNOWN-0)
+(0 =?= knownVal KNOWN-0)
+(5 =?= knownVal KNOWN-5)
+
+;; cache entry 0
+;; EMPTY = []
+;; CACHED = [stacktype]
+;; DECLARED = [input output]
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (ldel n xs)
+| And xs
+@ [x xs] xs
+| Ifz n xs (x, ldel Dec-n xs)
+
+(ldel 0 [3 [4 [5 []]]] =?= [4 [5 []]])
+(ldel 1 [3 [4 [5 []]]] =?= [3 [5 []]])
+(ldel 2 [3 [4 [5 []]]] =?= [3 [4 []]])
+(ldel 3 [3 [4 [5 []]]] =?= [3 [4 [5 []]]])
+
+= (lroll n l)
+| (lix n l, ldel n l)
+
+( lroll 0 [3 [4 [5 []]]] =?= [3 [4 [5 []]]]     )
+( lroll 1 [3 [4 [5 []]]] =?= [4 [3 [5 []]]]     )
+( lroll 2 [3 [4 [5 []]]] =?= [5 [3 [4 []]]]     )
+( lroll 3 [3 [4 [5 []]]] =?= [0 [3 [4 [5 []]]]] )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; '] TODO: Can we extend this with borrowed and shared types with alias
+; '] information?
+
+TY_OWN=1
+TY_BOR=2
+TY_VAL=3
+(TY_LIT n)=(Add 4 n)
+
+(O=TY_OWN)(L=TY_BOR)(V=TY_VAL)(L=TY_LIT)
+
+= (litVal n)   | Sub n 4
+= (litTy t)    | Ge Hd-t 4
+= (ownTy t)    | Eq TY_OWN Hd-t
+= (sharedTy t) | Eq TY_VAL Hd-t
+= (showLit h)  | showNat | litVal | Hd h
+
+( showLit (TY_LIT 5) =?= "5" )
+
+= (renderType t)
+@ h Hd-t
+| WORD | Case h ["Err" "Own" "Rent" "Gc"] showLit-h
+| And IsApp-t
+^ NEST "," _ 0
+| map (o & WORD showNat-o 0) t
+
+= (renderStack tys)
+^ NEST "," _ 0
+| array | lmap renderType tys
+
+=?= (renderType (TY_LIT 5 6 7))
+    | WORD "5"
+    | NEST "," (WORD "6" 0, WORD "7" 0) 0
+
+=?= (renderType (TY_OWN 5))
+    | WORD "Own"
+    | NEST "," ,(WORD "5" 0) 0
+
+=?= (renderStack stream-[TY_VAL TY_LIT-5 TY_BOR TY_OWN])
+    '[Gc 5 Rent Own]
+
+= (slotMatches required actual)
+| (required == If litTy-actual TY_VAL actual)
+
+= (bzDefer _ _ _)  | ##Blitz "TODO:bzDefer"
+= (bzHail _ _ _)   | ##Blitz "TODO:bzHail"
+= (bzEnter _ _ _)  | ##Blitz "TODO:bzEnter"
+= (bzSource _ _ _) | ##Blitz "TODO:bzSource"
+
+= (aliasMap f t)
+| Row Hd-t Sz-t (lmap f stream-t)
+
+( aliasMap (Add 2) TY_VAL-2-3 =?= TY_VAL-4-5 )
+
+= (aliasDelete i t)
+| Ifz (has i t) t
+| Row Hd-t (Dec Sz-t) (lfilter (Ne i) stream-t)
+
+( aliasDelete 0 TY_VAL-1   =?= TY_VAL-1   )
+( aliasDelete 1 TY_VAL-1   =?= TY_VAL     )
+( aliasDelete 2 TY_VAL-1   =?= TY_VAL-1   )
+( aliasDelete 0 TY_VAL-0-1 =?= TY_VAL-1   )
+( aliasDelete 1 TY_VAL-0-1 =?= TY_VAL-0   )
+( aliasDelete 2 TY_VAL-0-1 =?= TY_VAL-0-1 )
+
+= (isAliased n s@[t ts])
+| Ifz n | NO
+| Ifz s | ##Blitz "isAliased:oob"
+@ n (Dec n)
+| (has n t || isAliased n ts)
+
+(isAliased 0 ~[TY_VAL-0 TY_OWN] =?= 0)
+(isAliased 1 ~[TY_VAL-0 TY_OWN] =?= 1)
+(isAliased 2 ~[TY_VAL-0 TY_OWN] =?= 0)
+
+= (setlistUnion as@[a amore] bs@[b bmore])
+| Ifz as bs
+| Ifz bs as
+@ lt | CONS a (setlistUnion amore bs)    ; a<b
+@ eq | CONS a (setlistUnion amore bmore) ; a=b
+@ gt | CONS b (setlistUnion as bmore)    ; a>b
+| Case (Compare a b) [lt eq] gt
+
+(tryit as bs)=(array | setlistUnion stream-as stream-bs)
+
+( tryit [3 5]   [2 3 4] =?= [2 3 4 5] )
+( tryit [2 3 4] [3 5]   =?= [2 3 4 5] )
+( tryit []      [3 5]   =?= [3 5]     )
+( tryit [3]     [3 5]   =?= [3 5]     )
+
+= (capMeet x y)
+| If (Eq x y) x
+| If ( Eq TY_BOR x || Eq TY_BOR y ) TY_BOR ; read-only
+| If ( Eq TY_VAL x || Eq TY_VAL y ) TY_VAL ; read-leak
+| If ( litTy x     || litTy y     ) TY_VAL ; non-equal literals
+| TY_OWN                                   ; read-write-leak
+
+( capMeet TY_LIT-1 TY_LIT-2 =?= TY_VAL   )
+( capMeet TY_LIT-2 TY_LIT-2 =?= TY_LIT 2 )
+( capMeet TY_LIT-2 TY_VAL   =?= TY_VAL   )
+( capMeet TY_BOR   TY_VAL   =?= TY_BOR   )
+( capMeet TY_BOR   TY_OWN   =?= TY_BOR   )
+( capMeet TY_VAL   TY_OWN   =?= TY_VAL   )
+( capMeet TY_OWN   TY_OWN   =?= TY_OWN   )
+
+= (aliasUnion tag a b)
+@ newElems (setlistUnion stream-a stream-b)
+| Row tag llen-newElems newElems
+
+( aliasUnion TY_VAL TY_VAL-3-4 TY_VAL-2-4 =?= TY_VAL-2-3-4 )
+
+= (tyMeet x y)
+| aliasUnion (capMeet Hd-x Hd-y) x y
+
+( tyMeet TY_VAL-3-4 TY_OWN   =?= TY_VAL-3-4   )
+( tyMeet TY_VAL-3-4 TY_BOR   =?= TY_BOR-3-4   )
+( tyMeet TY_VAL-3-4 TY_BOR-2 =?= TY_BOR-2-3-4 )
+
+= (btcIntersectRaw xstack ystack)
+| lzipwith tyMeet xstack ystack
+
+= (btcIntersect xstack ystack)
+@ result | btcIntersectRaw xstack ystack
+| If (llen xstack != llen ystack)
+    | ##Blitz ("intersect-size-difference" renderStack-xstack renderStack-ystack)
+| result
+
+(tryit x y)=(array | btcIntersect stream-x stream-y)
+
+( tryit [TY_VAL TY_VAL] [TY_LIT-1 TY_VAL] =?= [TY_VAL TY_VAL] )
+
+; ') 'btcNormalize drops aliases that don't point to owned values (since
+; ') they don't matter) and to things that are outside of the stack (which
+; ') running an operation against only the top few elements of the stack).
+
+= (btcNormalize stack@[t more])
+@ okAlias | i&(TY_OWN == Hd (lix i more))
+| And stack
+^ CONS _ (btcNormalize more)
+| If (all okAlias t) t
+@ a2 | lfilter okAlias stream-t
+| Row (Hd t) llen-a2 a2
+
+( btcNormalize stream-[TY_VAL-0 TY_OWN  ] =?= stream-[TY_VAL-0 TY_OWN  ] )
+( btcNormalize stream-[TY_VAL-0 TY_BOR  ] =?= stream-[TY_VAL   TY_BOR  ] )
+( btcNormalize stream-[TY_VAL-0 TY_VAL  ] =?= stream-[TY_VAL   TY_VAL  ] )
+( btcNormalize stream-[TY_VAL-0 TY_LIT-1] =?= stream-[TY_VAL   TY_LIT-1] )
+( btcNormalize stream-[TY_VAL-1 TY_OWN  ] =?= stream-[TY_VAL   TY_OWN  ] )
+
+(**ck where x k)=(Ifz x where k)
+
+= (getLit ctx ty)
+| Ifz (litTy ty) | ##Blitz ("getLit" ctx ty)
+| litVal ty
+
+= (chkNonZero ctx ty continuation)
+| Ifz ty | ##Blitz ("chkNonZero" ctx ty)
+| continuation
+
+; applyLeaks : [Nat] -> StackTy -> StackTy
+= (applyLeaks is stack)
+^ lfoldl _ stack is
+& (stack i)
+@ target (lix i stack)
+; Trace ("i" i, "stack" stack, "target" target, "_" _) _
+| If ownTy-(lix i stack) | lput i TY_VAL stack
+| else                   | stack
+
+(applyLeaks ~[0 1 9] ~[O L O] =?= ~[V L O])
+
+; leaks : Int -> StackTy -> List Int
+= (leaks n stack)
+^ lnub | lcat (lmapi _ stack)
+& (i ty)
+| And sharedTy-ty ; only shared types leak
+^ lmapMaybe _ stream-ty
+& a
+@ o Inc-(Add i a)
+| And (Ge o n) ; in-bounds aliases do not leak
+| [o]
+
+( leaks 2 ~[V-1 V-2 O O O] =?= ~[2 4] )
+( leaks 2 ~[V-0 O O O O O] =?= ~[]    )
+( leaks 1 ~[V-0 O O O O O] =?= ~[1]   )
+( leaks 2 ~[O V-0 O O O O] =?= ~[2]   )
+( leaks 2 ~[V-1 O O O O O] =?= ~[2]   )
+
+= (checkOp ctx inspec outs fullstack)
+@ arity | Sz inspec
+@ args  | ltake arity fullstack
+@ raw   | btcIntersect stream-inspec args
+@ meet  | Force (btcNormalize raw)
+@ ls    | leaks arity raw
+| If (planNeq meet stream-inspec)
+    | ##Blitz | ctx
+              ^ INFX "->" (_ , renderStack meet) 0
+              ^ SHUT "+" _ 0
+             ++ renderStack stream-inspec
+             ++ renderStack args
+| lweld stream-outs
+| ldrop arity
+| applyLeaks (leaks arity raw)
+| fullstack
+
+; 3=?=4
+
+L=TY_BOR ; lease (read-only)
+O=TY_OWN ; own (read-write-leak)
+S=TY_VAL ; share (read-leak)
+
+= (btsDefer m p s)  | ##Blitz | "TODO:btcDefer" m p s
+= (btsHail m p s)   | ##Blitz | "TODO:btcHail" m p s
+= (btsEnter m p s)  | ##Blitz | "TODO:btcEnter" m p s
+= (btsSource m p s) | ##Blitz | "TODO:btcSource" m p s
+
+= (btsLit width m@[n k q v e t fol o] p s)
+@ !n (Load Inc-p width e)
+| (TY_LIT n, s)
+
+= (btsLit8 m p s)  | btsLit 1 m p s
+= (btsLit16 m p s) | btsLit 2 m p s
+= (btsLit32 m p s) | btsLit 4 m p s
+= (btsLit64 m p s) | btsLit 8 m p s
+
+= (matchStacks ctx spec stack result)
+@ !meet | Force (btcIntersect stream-spec stack)
+| result
+
+= (btsCall [n k q v e t fol o] _ [alit !stk])
+@ !addr (getLit "call" alit)
+@ ent@[pub ins outs] (Ix addr k)
+| If (Ne 3 Sz-ent)
+    | ##Blitz ("call-not-arm" addr)
+@ arity  | Sz ins
+@ newstk | lweld stream-outs (ldrop arity stk)
+@ err    | matchStacks "call" ins (ltake arity stk) 0
+| If err | ##Blitz ("call-type" err)
+; Trace ("call" [alit stk] "->" newstk)
+| newstk
+
+= (**popLit ctx s@[nlit more] k)
+| Ifz litTy-nlit
+    | ##Blitz | "popLit" | "expected a literal" s
+| k litVal-nlit more
+
+= (btsApply _ _ s)
+: n s <- popLit "apply" s
+| checkOp "case" array-(lrep TY_VAL Inc-n) [TY_VAL] s
+
+= (btsPick _ _ [nlit stk])
+@ !n          | getLit "pick" nlit
+@ x           | lix n stk
+@ hx          | Hd x
+| Ifz x       | ##Blitz "dup:oob"
+^ [_ stk]
+| If (Eq TY_OWN hx) | TY_VAL-n
+| else              | Row hx Sz-x | lmap i&(Inc (Add n i)) stream-x
+
+( btsPick 0 0 ~[TY_LIT-0 TY_OWN]          =?= ~[TY_VAL-0 TY_OWN]          )
+( btsPick 0 0 ~[TY_LIT-0 TY_VAL-0 TY_OWN] =?= ~[TY_VAL-1 TY_VAL-0 TY_OWN] )
+( btsPick 0 0 ~[TY_LIT-1 TY_VAL-0 TY_OWN] =?= ~[TY_VAL-1 TY_VAL-0 TY_OWN] )
+
+= (btsAbort _ _ _)
+| 0 ; Always exits, so this new stack will never be used.
+
+= (btsReturn m@[n k q v e t fol o] _ s)
+@ err | matchStacks "return" o s 0
+| If err | ##Blitz ("return" err)
+| 0 ; Always exits, so this new stack will never be used.
+
+; = (btsRoll _ _ [nlit rest])
+; @ !n | getLit "roll" nlit
+; | chkNonZero "roll" (lix n rest)
+; | lroll n rest
+
+; ') Deleting an element from the stack drops alias information about
+; ') that element, and renumbers alias offsets that point past the item
+; ') (since they are now one slot closer).
+
+= (btsSnipOp i stack@[t ts])
+| Ifz stack | ##Blitz "snip:oob"
+| Ifz i     | ts
+@ c Hd-t
+@ as stream-t
+@ !j (Dec i)
+@ f x&(If (Ge a i) Dec-a i)
+^ CONS _ (btsSnipOp j ts)
+| aliasMap f (aliasDelete j t)
+
+; ') Moving an element to the top of the stack is the same as deleting it,
+; ') and then pushing a value of the same type to the top of the stack.
+; ')
+; ') However, if the item to be moved is owned and is aliased by other
+; ') slots on the stack, then we can no longer track this alias information
+; ') (we only track simple aliases that point up the stack).
+; ')
+; ') We handle this case by downgrading it from owned to shared (removing
+; ') write capability).
+
+= (btsRollOp n s)
+@ t (lix n s)
+; Trace [fill-"s"-s "t"-t "n"-n fill-"result"-_] _
+| btcNormalize
+| Ifz t (##Blitz "roll:oob")
+^ CONS _ (btsSnipOp n s)
+| Ifz ownTy-t        | aliasMap Add-n t ; ') not owned? renumber aliases
+| If (isAliased n s) | TY_VAL           ; ') owned w/ aliases? downgrade
+| else               | TY_OWN           ; ') unique owned? no downgrade
+
+=?= (btsRollOp 0 ~[TY_OWN   TY_OWN TY_OWN]) ~[TY_OWN TY_OWN TY_OWN]
+=?= (btsRollOp 1 ~[TY_OWN   TY_OWN TY_OWN]) ~[TY_OWN TY_OWN TY_OWN]
+=?= (btsRollOp 1 ~[TY_VAL-0 TY_OWN])        ~[TY_VAL TY_VAL]
+=?= (btsRollOp 1 ~[TY_VAL-0 TY_OWN TY_OWN]) ~[TY_VAL TY_VAL TY_OWN]
+
+= (btsRoll m p s)
+: n s <- popLit "roll" s
+| btsRollOp n s
+
+= (btsSnip _ _ s)
+: n s <- popLit "snip" s
+| btsSnipOp n s
+
+= (btsValue m@[n k q v e t fol o] _ [olit rest])
+@ !i (getLit "value" olit)
+| If (Ge i Sz-v)
+    | ##Blitz ("value:oob" i v)
+| [TY_VAL rest]
+
+= (btsCase _ _ s)
+: n s <- popLit "case" s
+@ !args | Force | lmap (getLit "case-label") (ltake n s)
+@ s (ldrop n s)
+| checkOp "case" [TY_VAL] [] s
+
+= (btsImm m@[n k q v e t fol o] p s)
+@ !n (Load8 p e)
+| [TY_LIT-n s]
+
+= (bzTrace f _ p [!v !s]) | Trace v (f Inc-p s)
+= (bzEval f _ p [!x !s])  | f Inc-p s
+
+= (bzGet f _ p [i [row s]])
+@ !res (Ix i row)
+| f Inc-p (res, [row s])
+
+= (bzNew f _ p [v [n s]])
+@ !arr (Rep 0 v n)
+| f Inc-p [arr s]
+
+= (bzSize f _ p [r s])
+@ !z Sz-r
+| f Inc-p [z [r s]]
+
+= (bzIce f _ p [!hd [!row s]])
+@ !new (Coup hd row)
+| f Inc-p [new s]
+
+(bzStone f m p stk)=(f Inc-p stk)
+
+l=stream
+
+= (bzLit width f [_ _ e] p s)
+@ !n (Load p width e)
+| f (Add width p) [n s]
+
+= (bzLit8  f t p s) | bzLit 1 f t Inc-p s
+= (bzLit16 f t p s) | bzLit 2 f t Inc-p s
+= (bzLit32 f t p s) | bzLit 4 f t Inc-p s
+= (bzLit64 f t p s) | bzLit 8 f t Inc-p s
+
+= (bzReturn f t p s)      | s
+= (bzAbort _ _ _ s)       | ##4 (fill "BlitzAbort" s)
+= (bzPick f t p [n s])    | f Inc-p (lix n s, s)
+= (bzCall f t p [l s])    | f Inc-p (f l s)
+= (bzJump f t p [l s])    | f l s
+= (bzJz f t p [d [z s]])  | f (Ifz z d Inc-p) s
+= (bzJnz f t p [d [z s]]) | f (Ifz z Inc-p d) s
+
+= (bzDefer f t p [n [l s]])
+^ f Inc-p (_, ldrop n s)
+| fst | f l | ltake n s
+
+; ') The tricky part of this is that we want to process all of the instructions
+; ') in the alias sequence as if they were in the code sequence, but they are
+; ') not!
+; ')
+; ') Processing most instruction will advance the code pointer to the
+; ') next instruction, but a jump will not!
+; ')
+; ') The approach that we use to determine if a branch took place, is that
+; ') we *expect* the continuation to be run  with the code pointer moved
+; ') forward by one, and if the code pointer points anywhere else, we jump.
+; ')
+; ') However, there is a problem (TODO), because it *is* actually possible
+; ') to jump to the instruction right after the alias.  A jump forward
+; ') by 0 being the most trivial example.  But actually, that's fine?
+; ') A jump forward of zero is equivalent to moving onto the next
+; ') instruction anyways, and it makes sense to continue processing the
+; ') alias microcode anyways, in that situation.
+
+= (bzAlias seq f data@[_ _ _ t] pos s)
+; Trace (Coup "alias" (map x&(x, t x) seq))
+@ sz  | Sz seq
+@ nex | Inc pos
+^ _ 0 nex s
+? (go i p s)
+@ e             | Ix i seq
+@ continue      | f p s
+| If (Ge i sz)  | continue                    ; ') done
+| If (Ne p nex) | continue                    ; ') jumped
+; Trace         | bzAlias i fill-"stack"-s e t-e
+| Ifz IsNat-e   | go Inc-i p (fst e, s)       ; ') constant value
+| t e (go Inc-i) data pos s                   ; ') run instruction
+
+(mkLit v)=(If IsNat-v TY_LIT-v TY_VAL)
+
+= (btsAlias seq m@[n k q v e t fol o] p s)
+^ foldl _ s seq
+& (s step)
+| Ifz IsNat-step
+    @ [val] step
+    | (mkLit val, s)
+| t step m p s
+
+;   ') Alright, here's the problem.  We are passing ourselves to the
+;   ') op-check handler, but it expects a closure of a specific shape.
+;   ')
+;   ') We are not a closure of that shape!
+
+= (bzCase f t p [n s])
+@ i      | Nat (lix n s)
+@ target | If (Ge i n) Inc-p (lix i s)
+@ !s     | ldrop Inc-n s
+| f target s
+
+= (stackToSpec stack)
+| Row 0 llen-stack
+: ty < lturn stack
+| If litTy-ty TY_VAL ty
+
+; TODO: Once we have a way to get the contents of a buffer without
+; consuming the buffer, nuke this and make it an alias again (and make it
+; take one argument, and make it consume the argument).
+
+= (bzApply f _ p [n [hd !s]])
+@ !row  | array (ltake n s)
+@ thunk | Coup hd row
+@ !s    | ldrop n s
+| f Inc-p [thunk s]
+
+= (bz_up f _ p [i [x [oldrow !stk]]])
+@ !row (Up_ i x oldrow)
+| f Inc-p (row, stk)
+
+= hexAlphabet "0123456789abcdef"
+
+= (hexStream n)
+| And n (Trunc 4 n, hexStream (Rsh n 4))
+
+= (showHex n)
+| Ifz n "0"
+^ strCat (arrayRev _)
+| lmap d&(Load8 d hexAlphabet)
+| hexStream n
+
+( showHex 0   =?= "0" )
+( showHex 1   =?= "1" )
+( showHex 254 =?= "fe" )
+( showHex 255 =?= "ff" )
+( showHex 256 =?= "100" )
+
+= (bzWriteNMut n f _ p [i [b [old !stk]]])
+@ !buf | If (Gt Add-n-i BufSz-old) old (Store i n b old)
+; Trace
+;   [bzWriteN n i b showHex-old ("edge" Add-n-i) ("size" BufSz-old) "->" showHex-buf]
+| f Inc-p [buf stk]
+
+= (bzWrite8Mut f m p s)  | bzWriteNMut 1 f m p s
+= (bzWrite16Mut f m p s) | bzWriteNMut 2 f m p s
+= (bzWrite32Mut f m p s) | bzWriteNMut 4 f m p s
+= (bzWrite64Mut f m p s) | bzWriteNMut 8 f m p s
+
+= (bzRead8 f _ p [i [buf !stk]])
+@ !res (Load8 i buf)
+| f Inc-p [res stk]
+
+= (bzRead16 f _ p [i [buf !stk]])
+@ !res (Load16 i buf)
+| f Inc-p [res stk]
+
+= (bzRead32 f _ p [i [buf !stk]])
+@ !res (Load32 i buf)
+| f Inc-p [res stk]
+
+= (bzRead64 f _ p [i [buf !stk]])
+@ !res (Load64 i buf)
+| f Inc-p [res stk]
+
+= (bzCopyMut f _ p [n [i [o [src [dst !stk]]]]])
+@ !res | Copy n i o src dst
+| f Inc-p [res stk]
+
+= (bzSpliceMut f _ p [n [i [o [src [buf !stk]]]]])
+@ !res | Splice i o n src buf
+| f Inc-p [res stk]
+
+= (bzSpliceInMut f _ p [n [i [o [buf !stk]]]])
+@ !res | Splice i o n buf buf
+| f Inc-p [res stk]
+
+= (bzCopyInMut f _ p [n [i [o [row !stk]]]])
+@ !new (Copy n i o row row)
+| f Inc-p [new stk]
+
+= (bzSnip f t p [n s])
+@ !s (ldel n s)
+| f Inc-p s
+
+= (bzRoll f d p [n s])
+@ !s (lroll n s)
+| f Inc-p s
+
+= (bzValue f [a v e t o] p [i !stk])
+@ !v (Ix i v)
+| f Inc-p [v stk]
+
+= (bzDivMod f m p [!a [!b s]])
+@ res@(!div, !mod) | DivMod a b
+| f Inc-p [div [mod s]]
+
+; Lix is lazy indexing, but index and target are evaluated.  The idea
+; here is that the implementation can do the actual lookup eagerly,
+; but not force the resulting thunk.
+= (bzLix f m p [!i [!r s]])
+| f Inc-p (Ix i r, s)
+
+(Id x)=x
+
+= (instrCodeOr table word err ok)
+@ sz (Sz table)
+^ _ 0
+? (go i)
+| If (Ge i sz) | err
+@ entNm        | Hd (Ix i table)
+| If (Ne entNm word) (go Inc-i)
+| ok (Sub 255 i)
+
+= (instrCode table word)
+@ err | Die ("instrCode: unbound instruction name" word)
+| instrCodeOr table word err x&x
+
+= (decodeInstr table word)
+| If (isSireDecimal word) | [loadSireDecimal-word]
+| If (Lt word 256)        | [word]
+| instrCode table word
+
+; resolveAliases :: BlitzTable -> AliasItem -> List AliasItem
+= (resolveAliases table item)
+| Ifz IsNat-item [item []]
+@ row (Ix (Sub 255 item) table)
+| Trace ("ROW" item (Sub 255 item) row)
+| Ifz row [item []]
+| If (Eq 2 Sz-row)
+    | lcatmap resolveAliases-table
+| [item []]
+
+; decodeAlias : BlitzTable -> Row InstrSpec -> List AliasCode
+= (decodeAlias table seq)
+| Trace [decodeAlias seq]
+^ lcatmap _ | lmap decodeInstr-table (stream seq)
+& item
+| Ifz IsNat-item [item []]
+@ row (Ix (Sub 255 item) table)
+| Trace ("ROW" item (Sub 255 item) row)
+| Ifz row [item []]
+| If (Eq 1 Sz-row)
+    | decodeAlias table fst-row
+| [item []]
+
+(instrSize byte)=(Case (Sub 255 byte) [2 3 4 5] 1)
+
+(instrSize 255)=?=2
+(instrSize 254)=?=3
+(instrSize 7)=?=1
+
+= (getInterp t r@[after bz ts])
+| Ifz IsApp-bz bz
+| bzAlias | array | decodeAlias t bz
+
+= (genTypeStep opname ins outs)
+@ nm (strWeld "bts_" opname)
+| Pin | Law nm 3 [(checkOp opname ins outs) 3]
+
+(bts_foo m p s)=(checkOp "foo" [L L] [O] s)
+
+=?= 1 | planEql bts_foo | genTypeStep "foo" [L L] [O]
+
+= (getTypeStep t r)
+| If (Eq 4 Sz-r)
+    @ [after bz ins outs] r
+    | genTypeStep Hd-r ins outs
+| else
+    @ [after bz ts] r
+    | If ts ts
+    | Ifz IsApp-bz | ##Blitz | "no typestep AND no alias" r
+    | btsAlias | array (decodeAlias t bz)
+
+(getFollows r@[follows bz ts])=follows
+
+
+;; What instructions follow this instruction? ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (litExn stk lit)
+| If litTy-lit litVal-lit
+| ##"ExpectedLit" [stk lit]
+
+= (fExit _ _)           | NIL
+= (fSolo _ p)           | Force | 0 Inc-p         | NIL
+= (fFat n _ p)          | Force | 0 (Add n Inc-p) | NIL
+= (fCase s@[n ss] p)    | Force | 0 Inc-p | lmap litExn-s (ltake litExn-s-n ss)
+= (fJmp stk@[dest _] p) | Force | 0 litExn-stk-dest | NIL
+= (fBr stk@[dest _] p)  | Force | 0 litExn-stk-dest | 0 Inc-p | NIL
+
+(stream [8 3 4])=?=(fCase (stream | map TY_LIT [2 3 4]) 7)
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= blitzTable
+@ ld    | Load8
+@@ = names  | map Hd table
+   = bz     | map (getInterp table) table
+   = ts     | map (getTypeStep table) table
+   = fol    | map getFollows table
+   = table ++ "u8"        fFat-1 bzLit8                  btsLit8
+           ++ "u16"       fFat-2 bzLit16                 btsLit16
+           ++ "u32"       fFat-4 bzLit32                 btsLit32
+           ++ "u64"       fFat-8 bzLit64                 btsLit64
+           ++ "abort"     fExit  bzAbort                 btsAbort
+           ++ "return"    fExit  bzReturn                btsReturn
+           ++ "case"      fCase  bzCase                  btsCase
+           ++ "jump"      fJmp   bzJump                  [L]         []
+           ++ "call"      fSolo  bzCall                  btsCall
+           ++ "defer"     fSolo  bzDefer                 btsDefer
+           ++ "enter"     fSolo  bzEnter                 btsEnter
+           ++ "hail"      fSolo  bzHail                  btsHail
+           ++ "source"    fSolo  bzSource                btsSource
+           ++ "jz"        fBr    bzJz                    [L L]       []
+           ++ "jnz"       fBr    bzJnz                   [L L]       []
+           ++ "pick"      fSolo  bzPick                  btsPick
+           ++ "roll"      fSolo  bzRoll                  btsRoll
+           ++ "snip"      fSolo  bzSnip                  btsSnip
+           ++ "dup"       fSolo  [0 "pick"]
+           ++ "over"      fSolo  [1 "pick"]
+           ++ "pick2"     fSolo  [2 "pick"]
+           ++ "pick3"     fSolo  [3 "pick"]
+           ++ "pick4"     fSolo  [4 "pick"]
+           ++ "pick5"     fSolo  [5 "pick"]
+           ++ "pick6"     fSolo  [6 "pick"]
+           ++ "pick7"     fSolo  [7 "pick"]
+           ++ "swap"      fSolo  [1 "roll"]
+           ++ "rot"       fSolo  [2 "roll"]
+           ++ "roll3"     fSolo  [3 "roll"]
+           ++ "roll4"     fSolo  [4 "roll"]
+           ++ "roll5"     fSolo  [5 "roll"]
+           ++ "roll6"     fSolo  [6 "roll"]
+           ++ "roll7"     fSolo  [7 "roll"]
+           ++ "drop"      fSolo  [0 "snip"]
+           ++ "nip"       fSolo  [1 "snip"]
+           ++ "snip2"     fSolo  [2 "snip"]
+           ++ "snip3"     fSolo  [3 "snip"]
+           ++ "snip4"     fSolo  [4 "snip"]
+           ++ "snip5"     fSolo  [5 "snip"]
+           ++ "snip6"     fSolo  [6 "snip"]
+           ++ "snip7"     fSolo  [7 "snip"]
+           ++ "trace"     fSolo  bzTrace                 [L]         []
+           ++ "eval"      fSolo  bzEval                  [L]         []
+           ++ "apply"     fSolo  bzApply                 btsApply
+           ++ "fire"      fSolo  ["apply" "dup" "eval"]
+           ++ "value"     fSolo  bzValue                 btsValue
+           ++ "rep"       fSolo  [Rep 3 "fire"]          [S S L]     [O]
+           ++ "_copy"     fSolo  bzCopyMut               [L L L L O] [O]
+           ++ "_copyIn"   fSolo  bzCopyInMut             [L L L O]   [O]
+           ++ "read8"     fSolo  bzRead8                 [L L]       [O]
+           ++ "read16"    fSolo  bzRead16                [L L]       [O]
+           ++ "read32"    fSolo  bzRead32                [L L]       [O]
+           ++ "read64"    fSolo  bzRead64                [L L]       [O]
+           ++ "_write8"   fSolo  bzWrite8Mut             [L L O]     [O]
+           ++ "_write16"  fSolo  bzWrite16Mut            [L L O]     [O]
+           ++ "_write32"  fSolo  bzWrite32Mut            [L L O]     [O]
+           ++ "_write64"  fSolo  bzWrite64Mut            [L L O]     [O]
+           ++ "_splice"   fSolo  bzSpliceMut             [L L L L O] [O]
+           ++ "_spliceIn" fSolo  bzSpliceInMut           [L L L O]   [O]
+           ++ "force"     fSolo  [Force 1 "fire" "drop"] [L]         []
+           ++ "ispin"     fSolo  [IsPin 1 "fire"]        [L]         [O]
+           ++ "islaw"     fSolo  [IsLaw 1 "fire"]        [L]         [O]
+           ++ "isapp"     fSolo  [IsApp 1 "fire"]        [L]         [O]
+           ++ "isnat"     fSolo  [IsNat 1 "fire"]        [L]         [O]
+           ++ "type"      fSolo  [Type 1 "fire"]         [L]         [O]
+           ++ "unpin"     fSolo  [Unpin 1 "fire"]        [L]         [S]
+           ++ "name"      fSolo  [Name 1 "fire"]         [L]         [S]
+           ++ "arity"     fSolo  [Arity 1 "fire"]        [L]         [S]
+           ++ "body"      fSolo  [Body 1 "fire"]         [L]         [S]
+           ++ "init"      fSolo  [Init 1 "fire"]         [S]         [S]
+           ++ "last"      fSolo  [Last 1 "fire"]         [L]         [S]
+           ++ "tobit"     fSolo  [ToBit 1 "fire"]        [L]         [O]
+           ++ "nil"       fSolo  [Nil 1 "fire"]          [L]         [O]
+           ++ "and"       fSolo  [And 2 "fire"]          [S S]       [S]
+           ++ "or"        fSolo  [Or 2 "fire"]           [S S]       [S]
+           ++ "xor"       fSolo  [Xor 2 "fire"]          [L L]       [O]
+           ++ "nand"      fSolo  [Nand 2 "fire"]         [L L]       [O]
+           ++ "nor"       fSolo  [Nor 2 "fire"]          [L L]       [O]
+           ++ "xnor"      fSolo  [Xnor 2 "fire"]         [L S]       [S]
+           ++ "nat"       fSolo  [Nat 1 "fire"]          [S]         [S]
+           ++ "fresh"     fSolo  [Fresh 1 "fire"]        [L]         [O]
+           ++ "inc"       fSolo  [Inc 1 "fire"]          [L]         [O]
+           ++ "dec"       fSolo  [Dec 1 "fire"]          [L]         [O]
+           ++ "add"       fSolo  [Add 2 "fire"]          [L L]       [O]
+           ++ "sub"       fSolo  [Sub 2 "fire"]          [L L]       [O]
+           ++ "mul"       fSolo  [Mul 2 "fire"]          [L L]       [O]
+           ++ "pow"       fSolo  [Pow 2 "fire"]          [L L]       [O]
+           ++ "bex"       fSolo  [Bex 1 "fire"]          [L]         [O]
+           ++ "div"       fSolo  [Div 2 "fire"]          [L L]       [O]
+           ++ "mod"       fSolo  [Mod 2 "fire"]          [L L]       [O]
+           ++ "divmod"    fSolo  bzDivMod                [L L]       [O O]
+           ++ "eq"        fSolo  [Eq 2 "fire"]           [L L]       [O]
+           ++ "ne"        fSolo  [Ne 2 "fire"]           [L L]       [O]
+           ++ "le"        fSolo  [Le 2 "fire"]           [L L]       [O]
+           ++ "ge"        fSolo  [Ge 2 "fire"]           [L L]       [O]
+           ++ "lt"        fSolo  [Lt 2 "fire"]           [L L]       [O]
+           ++ "gt"        fSolo  [Gt 2 "fire"]           [L L]       [O]
+           ++ "cmp"       fSolo  [Compare 2 "fire"]      [L L]       [O]
+           ++ "lsh"       fSolo  [Lsh 2 "fire"]          [L L]       [O]
+           ++ "rsh"       fSolo  [Rsh 2 "fire"]          [L L]       [O]
+           ++ "trunc"     fSolo  [Trunc 2 "fire"]        [L L]       [O]
+           ++ "_trunc"    fSolo  [Trunc 2 "fire"]        [L O]       [O]
+           ++ "bits"      fSolo  [Bits 1 "fire"]         [L]         [O]
+           ++ "cut"       fSolo  [Cut 3 "fire"]          [L L L]     [O]
+           ++ "test"      fSolo  [Test 2 "fire"]         [L L]       [O]
+           ++ "set"       fSolo  [Set 2 "fire"]          [L L]       [O]
+           ++ "_set"      fSolo  [Set 2 "fire"]          [L O]       [O]
+           ++ "clear"     fSolo  [Clear 2 "fire"]        [L L]       [O]
+           ++ "_clear"    fSolo  [Clear 2 "fire"]        [L L]       [O]
+           ++ "hd"        fSolo  [Hd 1 "fire"]           [S]         [S]
+           ++ "ix"        fSolo  [Ix 2 "fire"]           [L L]       [S]
+           ++ "lix"       fSolo  bzLix                   [L L]       [S]
+           ++ "sz"        fSolo  [Sz 1 "fire"]           [L]         [O]
+           ++ "coup"      fSolo  [Coup 3 "fire"]         [S L]       [O]
+           ++ "_coup"     fSolo  [Coup 2 "fire"]         [S O]       [O]
+           ++ "up"        fSolo  [Up 3 "fire"]           [L S L]     [O]
+           ++ "_up"       fSolo  [Up_ 3 "fire"]          [L S O]     [O]
+           ++ "word8"     fSolo  [Word8 1 "fire"]        [L]         [O]
+           ++ "word16"    fSolo  [Word16 1 "fire"]       [L]         [O]
+           ++ "word32"    fSolo  [Word32 1 "fire"]       [L]         [O]
+           ++ "word64"    fSolo  [Word64 1 "fire"]       [L]         [O]
+           ++ "bytes"     fSolo  [Bytes 1 "fire"]        [L]         [O]
+           ++ "load"      fSolo  [Load 3 "fire"]         [L L L]     [O]
+           ++ "load8"     fSolo  [Load8 2 "fire"]        [L L]       [O]
+           ++ "load16"    fSolo  [Load16 2 "fire"]       [L L]       [O]
+           ++ "load32"    fSolo  [Load32 2 "fire"]       [L L]       [O]
+           ++ "load64"    fSolo  [Load64 2 "fire"]       [L L]       [O]
+ | [table names bz ts fol]
+
+folTable_=(Ix 4 blitzTable)
+btsTable_=(Ix 3 blitzTable)
+(btsTable i)=(Case (Sub 255 i) btsTable_ btsImm)
+(folTable i)=(Case (Sub 255 i) folTable_ fSolo)
+bzTable_=(Ix 2 blitzTable)
+(bzTable i)=(Case (Sub 255 i) bzTable_ bzLit-1)
+blitzNames=(Ix 1 blitzTable)
+blitzTable=(Ix 0 blitzTable)
+
+; bzTable=?=333333333333333333333
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (decodeLit prog recur i j x)
+@ w Bex-(Sub x 64)
+@ n (Load j w prog)
+| (i, [n], recur (Add w j))
+
+= (decode prog psz i)
+@ x      | Load8 i prog
+@ recur  | decode prog psz
+@ j      | Inc i
+@ in     | Sub x 68
+| If (Ge i psz) | "oob"
+| If (Gt 64 x)  | (i, [x], recur j)          ; i < 64 (small lit)
+| If (Gt 68 x)  | decodeLit prog recur i j x ; i < 68 (big lit)
+| If (Gt 71 x)  | (i, in, 0)                 ; i < 75 (terminal op)
+| If (Gt 92 x)  | (i, in, recur j)           ; i < 92  (normal op)
+| Trace ("invalid" i x in)
+| "invalid"
+
+= (okBlitzType t)
+| Or (Eq t TY_OWN)
+| Or (Eq t TY_BOR)
+| Or (Eq t TY_VAL)
+| ((TY_LIT == Hd t) && (1 == Sz t))
+
+= (okBlitzRet t)
+| And (okBlitzType t)
+| Ne Hd-t TY_BOR ; Cannot return borrowed values
+
+= (okEntryArg t)
+| And (okBlitzType t)
+| And (Sz t == 0)      ; no alias requirements
+| (Hd t != TY_OWN)     ; caller is untyped, so cannot require uniqueness.
+
+= (okEntry public inputs outputs)
+| And public
+| And (all okEntryArg inputs)
+| And (all okBlitzRet outputs)
+| And (Ge Sz-inputs 1)
+      (Eq Sz-outputs 1)
+
+(isBit x)=(Or Nil-x Eq-1-x)
+
+= (bzCheckArmSignature main sig@[public inputs outputs] ok)
+| Ifz (Sz sig == 3)             | "armsz"
+| Ifz (isBit public)            | "pubit"
+| If Hd-inputs                  | "inrow"
+| If Hd-outputs                 | "outrow"
+| Ifz (all okBlitzType inputs)  | "bin"
+| Ifz (all okBlitzRet  outputs) | "badout"
+| If (main && not (okEntry public inputs outputs))
+    "maintype"
+| ok
+
+= (dictList dict)
+@ !n (Sz dict)
+^ (_ 0)
+? (go i)
+| (Lt i n)&&((Ix i dict, Ix Inc-i dict), go Add-2-i)
+
+( dictList 5           =?= 0             )
+( dictList (5 6 7)     =?= [6,7 0]       )
+( dictList (5 6 7 8 9) =?= [6,7 [8,9 0]] )
+
+= (renderInstr code)
+@ ix (Sub 255 code)
+| If (Ge ix Sz-blitzNames) | WORD (showNat code) 0
+| else                     | WORD (Ix ix blitzNames) 0
+
+= (renderBInstr i)
+; Trace [renderBInstr i {->} _] _
+| If IsNat-i     | renderInstr (Clear 8 i)
+| If (1 == Hd i) | "LABEL" (snd i)
+| If (2 == Hd i) | "LABEL_REF" (fst i)
+| else           | Die ("renderBInstr" i)
+
+;OP=bsing
+;LI=0
+;NM=1
+;RF=2
+
+= (bzLoop a v e t p !s) ; ') arms vals exe table position stack
+; Trace [bzLoop p fill-"stack"-(ltake 10 s) renderInstr-(Load8 p e)]
+@ recur (bzLoop a v e t)
+| t Load8-p-e recur recur p s
+
+( 'foo    =?= WORD "foo" 0                      )
+( 'foo[x] =?= WORD "foo" (NEST "," ,(WORD "x" 0) 0) )
+
+= (renderCache ent)
+| If (Sz ent == 1) (renderStack fst-ent)
+@ [pub ins outs] ent
+| WORD (If pub "pub" "priv")
+^ INFX "->" _ 0
+| (renderStack stream-ins, renderStack stream-outs)
+
+(**place x y)=y
+
+= (btcAdvance btcStep m@[n k q v e t fol o])
+| Ifz q
+    | place | "final_cache"
+            | array
+            | lfilter x&x
+            : i c < lturni stream-k
+            | And c
+            | WORD (strWeld "#" showNat-i)
+            ^ INFX "<-" _ 0
+           ++ renderInstr (Load8 i e)
+           ++ renderCache c
+    | 0
+@ [[p stk] q] | q
+@ m           | [n k q v e t fol o]
+@ ent         | Ix p k
+| If (Sz ent == 3)
+    ; Trace "cache_declared"-p
+    @ [_ ins outs] ent
+    | matchStacks "fallthrough.in"  ins  stk
+    | matchStacks "fallthrough.out" outs stream-o
+    | btcAdvance btcStep m
+| If (Sz ent == 1)
+    @ [cached] ent
+    | Trace "cache_found"-(strWeld "#" showNat-p)-ent
+    @ merged | Force (btcIntersect cached stk)
+    | If (planEql merged stk)
+        | btcAdvance btcStep m
+    | else
+        | ##TODO ("merged" "merged"-merged "stack"-stk "cached"-cached)
+| If (Sz ent == 0)
+    ; Trace "cache_updated"-p
+    @ k (Up p [stk] k)
+    @ m [n k q v e t fol o]
+    | btcStep m p stk
+| else
+    | ##bchk ("wtf is this?" ent)
+
+
+= (btcStep m@[n k q v e t fol o] p s)
+| If (Ge p n) "oob"
+@ byte  | Load8-p-e
+@ tstep | t byte
+@ !s2   | Force | tstep m p s
+@ !aft  | Force | fol byte s p
+@ q     | Force | lweld (lmap p&[p s2] aft) q
+| place | "btcStep" p
+                    (WORD "stack" (renderStack s))
+                    (renderInstr byte)
+                    "step"-tstep
+                    (WORD "newstack" (renderStack s2))
+@ m [n k q v e t fol o]
+| btcAdvance btcStep m
+
+; ') n -- code size, in bytes (constant)
+; ') k -- cache (cache for loops and join points, varies)
+; ') q -- work queue: (list of [PC type], varies)
+; ') v -- array of constants (constant)
+; ') e -- executable (the bytecode itself, constant)
+; ') t -- instruction table (constant)
+; ') o -- the return type (constant)
+
+; ') Each step takes a continuation as it's first argument.
+; ')
+; ') First, we enter the loop with a flag set which indicates that this
+; ') is the first instruction (to avoid trying to treat this as a
+; ') self-call).
+; ')
+; ') First we check whether the work queue is empty.  If it is, then
+; ') everything is good!
+; ')
+; ') Next we pop a work item and check to see if that instruction
+; ') is cached.  If it is cached, then we validate against the cache:
+; ') crash or recur.
+; ')
+; ') If it's not cached (or this is the first instruction), then we
+; ') perform a check.
+; ')
+; ') The checking logic either crashes, or returns a new work queue.
+; ')
+; ') We then update the cache with the old state (unless this is the
+; ') first instruction).
+; ')
+; ') And then we recur.
+
+; ') Checker
+; ') -------
+; ')
+; ') So, the core routine here is the checker, which takes all
+; ') of the info and returns a list of new work items.
+; ')
+; ') Arguments:
+; ')
+; ') -   The bytecode.
+; ') -   A table of constants.
+; ') -   The instruction table.
+; ') -   The return type.
+; ')
+; ') Returns:
+; ')
+; ') A list of new work items (or crashes).
+; ')
+
+; ') k -- cache (cache for loops and join points, varies)
+; ') q -- work queue: (list of [PC type], varies)
+; ') v -- array of constants (constant)
+; ') e -- executable (the bytecode itself, constant)
+; ') t -- instruction table (constant)
+; ') o -- the return type (constant)
+
+UNDEF=0
+OKAY=0
+
+= (tcLit n in out) | (([n in], out), OKAY)
+= (tcRet in out)   | (UNDEF, If planEql-in-out 0 ("return" in out))
+= (tcDie in out)   | (UNDEF, OKAY)
+
+(tcRet []          []          =?= ( NONE, 0)                       )
+(tcRet [TY_VAL []] [TY_VAL []] =?= ( NONE, 0)                       )
+(tcRet [TY_VAL []] []          =?= ( NONE, "return" [TY_VAL []] []) )
+(tcRet []          [TY_VAL []] =?= ( NONE, "return" [] [TY_VAL []]) )
+
+= (btcArm vs exe cache (entry, sig@[_ ins outs]))
+; Trace | WORD "check" | NEST "," ,(WORD Hd-sig 0) 0
+; Trace [btcArm Hd-sig entry ins outs]
+@ m | (BufSz exe, cache, NIL, vs, exe, btsTable, folTable, outs)
+@ s | stream ins
+| btcStep m entry s
+
+;' For each arm in the signature, we typecheck the underlying code to
+;' make sure that, starting at the specified input state, all possible
+;' branches reach the specified output type.
+
+= (btcArms vals exe arms ok)
+@ cache
+    : pc                 < gen (Bytes exe)
+    : _ix [pub ins outs] < dictSearchCase pc arms 0
+    | [pub ins outs]
+^ lfoldr _ ok dictList-arms
+? (step a b)
+@ res (btcArm vals exe cache a)
+; Trace ("STEP" a)
+; Trace ("STEPxRESULT" res)
+| OrHack res b
+
+= (bzCheckSignature arms ok)
+; Trace ("arms" arms, "ok"-ok)
+@ sz Sz-arms
+| Ifz arms   | "nulsig"
+| If Hd-arms | "tagsig"
+^ _ 1 0 0
+? (go main lastKey i)
+| Case (Compare sz i) ["uneven" ok]
+@ k (Ix i arms)
+@ v (Ix Inc-i arms)
+| Ifz IsNat-k                | "keynat"
+| Ifz (main || Lt lastKey k) | "ascend"
+| If (main && k)             | "main0"
+| bzCheckArmSignature main v
+| go 0 k Add-2-i
+
+V=TY_VAL
+
+( bzCheckSignature 0                     "ok" =?= "nulsig"   )
+( bzCheckSignature 1                     "ok" =?= "tagsig"   )
+( bzCheckSignature (1 1 1)               "ok" =?= "tagsig"   )
+( bzCheckSignature [1 0]                 "ok" =?= "main0"    )
+( bzCheckSignature [Inc 0]               "ok" =?= "keynat"   )
+( bzCheckSignature [0 (2, [],  [])]      "ok" =?= "pubit"    )
+( bzCheckSignature [0 (1, 9,   [])]      "ok" =?= "inrow"    )
+( bzCheckSignature [0 (1, [],  4 )]      "ok" =?= "outrow"   )
+( bzCheckSignature [0 (1, [9], [])]      "ok" =?= "bin"      )
+( bzCheckSignature [0 (1, [],  [9])]     "ok" =?= "badout"   )
+( bzCheckSignature [0 (1, [], [])]       "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [], [V])]      "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [V], [V])]     "ok" =?= "ok"       )
+( bzCheckSignature [0 (1, [V V], [V])]   "ok" =?= "ok"       )
+( bzCheckSignature [0 (1, [V V V], [V])] "ok" =?= "ok"       )
+( bzCheckSignature [0 (1, [O], [V])]     "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [V], [L])]     "ok" =?= "badout"   )
+( bzCheckSignature [0 (1, [O V V], [V])] "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [V O V], [V])] "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [V V O], [V])] "ok" =?= "maintype" )
+( bzCheckSignature [0 (1, [V], [V V])]   "ok" =?= "maintype" )
+
+= (isArrayOf p x)     | (Nil Hd-x && all p x)
+= (dictHas key table) | dictSearchCase key table 0 (_ _ & 1)
+
+= (bziWidth code off)
+@ i (Load8 off code)
+| Case (Sub 255 i) [2 3 5 9] 1
+
+= (bziWidths code)
+@ n (BufSz code)
+^ array (_ 0)
+? (go i)
+^ Ix (Compare i n) [_ 0 [0 0]]
+@ w (bziWidth code i)
+| (w, go (Add i w))
+
+= (collectLabels exe offsets arms)
+@ nArms | Rsh Sz-arms 1
+@ main  | Ix 1 arms
+@ next  | Ix 2 arms
+^ Row 0 Sz-offsets (_ main 1 next stream-offsets)
+? (go arm armNum next offs@[o os])
+| And offs
+| Ifz next       | (arm, go arm armNum next os)
+| If (Gt o next) | Die "arm does not point to instruction"
+| If (Lt o next) | (arm, go arm armNum next os)
+@ armNum | Inc armNum
+@ i      | Lsh armNum 1
+@ !next  | Ix i arms
+@ !arm   | Ix Inc-i arms
+| go arm armNum next offs
+
+; For each arm, do a binary search to find the instruction corresponding
+; with the arm index.  Validate that it matches an actual instruction
+; index, and then return that index.
+
+; Convert this into an instruction-count per arm.
+
+; Use this instruction count to generate the labels table.
+; (lcat (lrep w[0] label[0]) (lrep w[1] label[1]) ...)
+
+= (lchunk n list) | list&&(ltake n list, lchunk n (ldrop n list))
+
+( lchunk 2 stream-[3 4 5 6] =?= stream-[stream-[3 4] stream-[5 6]] )
+( lchunk 2 stream-[3 4 5]   =?= stream-[stream-[3 4] stream-[5]]   )
+
+
+(flip f a b)=(f b a)
+
+= (positionsToSizes positions totalSize)
+@ n    | Sz positions
+@ last | Dec n
+: i < gen n
+^ Sub _ (Ix i positions)
+| If i==last totalSize
+| Ix Inc-i positions
+
+( positionsToSizes [0 5 7 77] 80 =?= [5 2 70 3] )
+
+; ') TODO: Crash instead of returning an error code.  Use Try to test!
+; ')
+; ') TODO: Make this code way clearer!  This is still pretty fraught code.
+
+= (armSizes offsets arms ok)
+@ n (Sz arms)
+@ armIxs
+    ^ Row 0 (Rsh n 1) | lmap _ | lchunk 2 | stream arms
+    ? (go [armOff [armData _]])
+    @ res (searchSet armOff offsets)
+    | Ifz (Test 0 res) ("bad-arm-offset" armOff armData)
+    | Rsh res 1
+@ errors | lfilter IsApp stream-armIxs
+@ sizes  | positionsToSizes armIxs Sz-offsets
+    ; | Row 0 Sz-armIxs
+    ; ^ ldrop 1 (lscanl flip-Sub 0 _)
+    ; | lsnoc (ldrop 1 stream-armIxs) Sz-offsets
+; Trace ("arms" arms, "armIxs" armIxs, "sizes" sizes)
+| If errors (Trace errors | Hd fst-errors)
+| ok sizes
+
+= (caseStep [sizeLit@[size] stack])
+| And (litTy sizeLit)
+| SOME (ldrop Inc-size stack) ; ') drop n labels + switch key
+
+= (applyStep [sizeLit@[size] stack])
+| And (litTy sizeLit)
+| SOME (ldrop Inc-size stack) ; ') drop function + n args
+
+= (valueStep stack)
+| SOME | (TY_VAL, ldrop 1 stack)
+; ') TODO: produce a TY_LIT based on an actual index into the values array.
+
+= (chainSteps stack row)
+^ foldl _ SOME-stack row
+& (stack step)
+| And stack (step stack)
+
+= (dupStep stack)  | SOME (TY_VAL, stack)
+= (evalStep stack) | SOME | ldrop 1 stack
+= (fireStep stack) | chainSteps stack [applyStep dupStep evalStep]
+
+= (typeStep exe offsets stack i)
+@ o (Ix i offsets)
+@ byt (Load8 i exe)
+| If (Le byt 120) | SOME | (TY_LIT byt,               stack)
+| If (Eq byt 255) | SOME | (TY_LIT (Load8 Inc-i exe),  stack)
+| If (Eq byt 254) | SOME | (TY_LIT (Load16 Inc-i exe), stack)
+| If (Eq byt 253) | SOME | (TY_LIT (Load32 Inc-i exe), stack)
+| If (Eq byt 252) | SOME | (TY_LIT (Load64 Inc-i exe), stack)
+| If (Eq byt 250) | NONE ; return
+| If (Eq byt 249) | caseStep stack
+| If (Eq byt 237) | dupStep stack
+| If (Eq byt 229) | SOME | (TY_VAL, (TY_VAL, ldrop 2 stack)) ; swap
+| If (Eq byt 222) | SOME | (ldrop 1 stack) ; drop
+| If (Eq byt 213) | applyStep stack
+| If (Eq byt 212) | fireStep stack
+| If (Eq byt 211) | valueStep stack
+| If (Eq byt 210) | evalStep stack
+| ##TODO ("typeStep" i byt (renderInstr byt) stack)
+
+= (instrTypes offsets arms labels exe results i)
+@ (entry, block)  | Ix i labels
+@ pres            | And i (Ix Dec-i results)
+@ pstk
+    | OrHack pres
+    | And entry | SOME | stream | Ix 1 block
+^ Trace ++ "instr"-(renderInstr (Load8 (Ix i offsets) exe))
+        ++ "label"-(And entry block)
+        ++ "pres"-pres
+        ++ "pstk"-pstk
+        ++ "next"-_
+    _
+| And pstk
+| typeStep exe offsets fst-pstk i
+
+= (apartheid isLabel stream)
+^ (_ 0 [] [] stream)
+? (go key eAcc acc stream@[x xs])
+| Ifz stream
+    | Ifz eAcc (arrayRev acc)
+    | go key 0 [[key arrayRev-eAcc] acc] xs
+| If isLabel-x
+    ^ go x [] _ xs
+    | Ifz eAcc acc
+    | ((key, arrayRev eAcc), acc)
+| else
+    | go key [x eAcc] acc xs
+
+=?= ^ apartheid x&(Nil IsNat-x) stream-_
+    | [Pin 3 4 Law 5 6]
+ ++ (Pin, [3 4])
+ ++ (Law, [5 6])
+
+(lgroupsOf n xs)=(xs && (ltake n xs, lgroupsOf n (ldrop n xs)))
+
+=?= (lgroupsOf 2 stream-[3 4 5 6 7])
+    stream-[stream-[3 4] stream-[5 6] stream-[7]]
+
+= (renderTypes types)
+| If (1 == Sz types) (renderType fst-types)
+| NEST "|" (map renderType types) 0
+
+= (renderSig nm ins outs)
+^ INFX "::" (WORD nm 0, _) 0
+^ INFX "->" _ 0
+| (renderTypes ins, renderTypes outs)
+
+= (instrRex i)
+^ WORD _ 0
+| If IsApp-i (showNat fst-i) i
+
+= (renderBody instrs)
+| OPEN "#" (array instrs) 0
+
+= (bzPretty toks)
+@ pairs | apartheid x&("LABEL" == Hd x) toks
+| bloodline
+| stream
+| turn pairs
+& [label instrs]
+@ label          | fst label
+@ nm             | Hd-label
+@ [pub ins outs] | label
+^ OPEN "=" [(renderSig nm ins outs) _] 0
+| bloodline
+| lmap renderBody | lgroupsOf 6 | stream instrs
+
+= (rexSym s)    | WORD s 0
+= (rexNatLit n) | rexSym showNat-n
+
+= (fullRenderInstr exe off)
+@ i      | Load8 off exe
+@ o1     | Inc off
+@ byte   | WORD "u8"  | NEST "," [rexNatLit-(Load8 o1 exe)]  0
+@ word   | WORD "u16" | NEST "," [rexNatLit-(Load16 o1 exe)] 0
+@ double | WORD "u32" | NEST "," [rexNatLit-(Load32 o1 exe)] 0
+@ quad   | WORD "u64" | NEST "," [rexNatLit-(Load64 o1 exe)] 0
+| Case (Sub 255 i) [byte word double quad]
+@ tmp@[lit] renderInstr-i
+| WORD (If IsNat-tmp tmp showNat-lit) 0
+
+= (bzPrint pin)
+@ law  (Unpin pin)
+@ args (Arity law)
+@ [clz arg] | times fst Body-law args
+@ blz       | Hd clz
+@ arms      | fst clz
+@ vals      | snd clz
+@ exe       | fst arg
+@ widths    | bziWidths exe
+@ n         | Sz-widths
+@ offsets   | Row 0 n | lscanl Add 0 stream-widths
+@ renders   | gen n i&(fullRenderInstr exe | Ix i offsets)
+: armSzs    < armSizes offsets arms
+; Trace ["arms"-arms "armSzs"-armSzs]
+@ !labels   ^ Row 0 n | lcat | lturni stream-armSzs _
+            & (i x)
+            @ label | Ix Inc-(Lsh i 1) arms
+            | lzip (1, lrep 0 x) (lrep label x)
+^ bzPretty (lcat | lturni stream-offsets _)
+& (i off)
+@ [labeled block] (Ix i labels)
+| If labeled ("LABEL" block, (Ix i renders, []))
+| else       (Ix i renders, [])
+
+= (bzCheckBytecode exe arms ok)
+| Ifz IsBuf-exe       | "nobar"
+| Ifz (Gt Bits-exe 1) | "empty"
+| ok
+;; = inputs (gen Sz-labels (instrTypes offsets arms labels exe inputs))
+;; Trace ("HELLO", arms, offsets, labels, armSzs, zip renders inputs)
+;; Ifz (Ix Dec-n widths) "decode"
+;; ok
+
+= (btc vals exe arms ok)
+| Trace "btc_start"
+| bzCheckSignature arms
+| bzCheckBytecode exe arms
+| btcArms vals exe arms
+| Trace "btc_ok"
+| ok
+
+= (entryArity arms entry)
+: _ [public input output] < dictSearchCase entry arms 0
+| And public
+| And (planEql [TY_VAL] output)
+| And (all Eq-TY_VAL input)
+| Sz input
+
+; '] Bunch of open questions around strictness here.  Can't make anything
+; '] strict without also eliminating thunks!  Maybe everything on the stack
+; '] in Blitz should be in WHNF?  That way, you can still have lazy
+; '] values, but only if you box them?
+; ']
+; '] This is generally any issue with PLAN that I haven't thought about
+; '] before, which is that accessing fields of, for example, a tuple
+; '] requires using Ix, which thunks.  Forcing that thunk forces not just
+; '] the tuple access, but also the *value accessed* from the tuple.
+; ']
+; '] This is not a problem in GHC's model where pattern matching is a first
+; '] class thing, and indeed it is also not a problem with #3 in PLAN, but
+; '] that is impractical for most things.
+; ']
+; '] Not sure what the right resolution is here, can think of a bunch of
+; '] ideas, but none of them are great.
+
+= (bzCollect arms vals exe n args)
+| Ifz n fst-(bzLoop arms vals exe bzTable 0 stream-args)
+| arg&(bzCollect arms vals exe Dec-n (args arg))
+
+(gate nm)=[(0, nm 1 [TY_VAL] [TY_VAL])]
+
+; = (coreEntries arms)
+; @ n (Sz arms)
+; ^ _ 0 0
+; ? (go !acc ix)
+; ^ If (Ge ix n) acc (go _ Add-2-ix)
+; @ k       (Ix ix arms)
+; @ [p i o] (Ix Inc-ix arms)
+; ^ Ifz _ acc (acc k Sz-i)
+; | And p | And (1 == Sz o) (all valTy i && all valTy o)
+
+= (coreShape corePin k)
+@ core (Unpin corePin)
+| If (Ne "BLITZCORE" Hd-core) "blitz"
+| If (Ne 3 Sz-core) "three"
+| k
+
+= (Blitz arms vals exe)
+; Trace [Blitz arms vals exe]
+| btc vals exe arms
+; Trace "It typechecks!"
+@ arity | Sz | snd | snd arms
+| bzCollect arms vals exe arity 0
+
+= (mkCore nm arity vals exe arms)
+^ Pin (Law nm arity (_ arity))
+? (go n)
+| If n (0 go-(Dec n) n)
+| (Blitz arms vals, [exe])
+
+= (assemble nm vals sig exe)
+; Trace ("assemble" nm vals sig exe)
+@ arms  | cat sig
+@ arity | Sz | snd | snd arms
+; Trace ("arms" arms)
+; Trace ("arity" arity)
+| mkCore nm arity vals exe cat-sig
+
+(rexIsWord rex)=(rexStyle rex == "WORD")
+
+(blitzLookupInstruction nm)=(decodeInstr blitzTable nm)
+
+= (pretty x)
+| Ifz IsNat-x x
+| If (Ge x 256) 0
+| [x]
+
+= ("#blitz" ss rex)
+@ exe   ^ barImplode | cat | map pretty _
+        | array
+        | lmap (x & If IsNat-x x fst-x)
+        | lmap x&(blitzLookupInstruction | If (Eq x "ret") "return" x)
+        | lmap rexText
+        | lfilter rexIsWord
+        | ldrop 1 | stream | rexKids rex
+| (ss, EMBD exe)
+
+= blitzId
+| assemble "id" [] (gate "id")
+# blitz ret
+
+(blitzId 0 =?= 0)
+(blitzId 1 =?= 1)
+(blitzId 2 =?= 2)
+
+= blitzId
+| assemble "id" [] (gate "id")
+# blitz dup drop ret
+
+(blitzId 0 =?= 0)
+(blitzId 1 =?= 1)
+(blitzId 2 =?= 2)
+
+= blitzSwap
+| assemble "swap" [] (gate "swap")
+# blitz dup swap drop ret
+
+(blitzSwap 0 =?= 0)
+(blitzSwap 1 =?= 1)
+(blitzSwap 2 =?= 2)
+
+(silly n)=(assemble "silly" [ToBit] (gate "silly") n)
+
+x=(| silly # blitz dup 0 case ret)
+
+(x 3 =?= 3)
+
+x=(| silly # blitz dup 4 1 case ret)
+(x 3 =?= 3)
+
+x=(| silly # blitz dup 5 1 case ret ret)
+(x 3 =?= 3)
+(x 0 =?= 0)
+(x 1 =?= 1)
+
+x=(| silly # blitz dup 5 1 case ret drop 9 ret)
+(x 0 =?= 9)
+(x 1 =?= 1)
+
+x=(| silly # blitz dup 6 6 2 case ret drop 9 ret)
+(x 0 =?= 9)
+(x 1 =?= 9)
+(x 2 =?= 2)
+
+x=(| silly # blitz 1 2 2 apply ret)
+(x 0 =?= (2 1 0))
+(x 1 =?= (2 1 1))
+(x 2 =?= (2 1 2))
+
+= blitzBit
+| assemble "any" [ToBit] (gate "any") (# blitz 0 value 1 apply ret)
+
+( blitzBit 0        =?= 0 )
+( blitzBit 1        =?= 1 )
+( blitzBit 2        =?= 1 )
+( blitzBit blitzBit =?= 1 )
+
+= blitzEval
+| assemble "eval" [ToBit] (gate "eval") (# blitz dup 0 case drop 0 ret)
+
+( blitzEval 0 =?= 0 )
+( blitzEval 1 =?= 0 )
+
+= blitzBit
+| assemble "any" [ToBit] (gate "any") (# blitz 0 value 1 apply dup 0 case ret)
+
+( blitzBit 0        =?= 0 )
+( blitzBit 1        =?= 1 )
+( blitzBit 2        =?= 1 )
+( blitzBit blitzBit =?= 1 )
+
+= blitzBit
+| assemble "any" [ToBit] (gate "any") (# blitz 0 value 1 apply dup eval ret)
+
+( blitzBit 0        =?= 0 )
+( blitzBit 1        =?= 1 )
+( blitzBit 2        =?= 1 )
+( blitzBit blitzBit =?= 1 )
+
+= blitzBit
+| assemble "any" [ToBit] (gate "any") (# blitz 0 value 1 fire ret)
+
+( blitzBit 0        =?= 0 )
+( blitzBit 1        =?= 1 )
+( blitzBit 2        =?= 1 )
+( blitzBit blitzBit =?= 1 )
+
+= dorp
+| assemble "dorp" [] (gate "dorp")
+# blitz 2 jz 3 ret
+
+(dorp 0 =?= 3)
+(dorp 1 =?= 3)
+
+= dorp
+| assemble "dorp" [] (gate "dorp")
+# blitz 4 jz 3 ret 4 ret
+
+(dorp 1 =?= 3)
+(dorp 0 =?= 4)
+
+= blitzAddThree
+| assemble "add3" [] (gate "dorp")
+# blitz 3 add ret
+
+( blitzAddThree 3 =?= 6 )
+
+= dorp
+| assemble "dorp" [] (gate "dorp")
+# blitz dup 6 jz 4 add ret 5 add ret
+
+(dorp 0 =?= 5)
+(dorp 1 =?= 5)
+(dorp 2 =?= 6)
+
+; ') TODO: swap order of list/hd (too lazy rn)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(bsing byte)=(Set 8 byte)
+
+= (barFromNat n) | Set (mul8 Bytes-n) n
+
+( barFromNat 0 =?= 1   )
+( barFromNat 1 =?= 257 )
+( barFromNat 2 =?= 258 )
+
+OP=bsing
+LI=0
+NM=1
+RF=2
+
+(isLabel n)=(IsApp n && Eq 1 Hd-n)
+(isRefer n)=(IsApp n && Eq 2 Hd-n)
+
+= (litWidth v)
+| If (Le v 120)        | 1
+| If (Le v 255)        | 2
+| If (Le v 65535)      | 3
+| If (Le v 4294967295) | 5
+| else                 | 9
+
+= (instrWidth i@[x]) ; worst case
+| If IsNat-i BufSz-i
+| Ix Hd-i (litWidth x, 0, 9)
+
+= (resolveInstr e i@[n]) ; Bst String Nat -> NameInstr -> List IxInstr
+@ keep [i 0]
+@ rf
+    @ undefined | Die | "resolveInstr" | "undefined_label" n bstSave-e
+    | Ifz (bstHas n e) undefined
+    | [RF-(bstIdx n e) []]
+| If IsNat-i keep
+| Ix Hd-i [keep 0 rf]
+
+( resolveInstr bstLoad-["a" 55] NM-"a" =?= []         )
+( resolveInstr bstLoad-["a" 55] RF-"a" =?= [RF-55 []] )
+( resolveInstr bstLoad-["a" 55] OP-5   =?= [OP-5 []]  )
+
+(instrWidth (OP 5)          =?= 1)
+(instrWidth (NM "foo")      =?= 0)
+(instrWidth (RF "foo")      =?= 9)
+(instrWidth (LI 0)          =?= 1)
+(instrWidth (LI 120)        =?= 1)
+(instrWidth (LI 121)        =?= 2)
+(instrWidth (LI 4294967295) =?= 5)
+(instrWidth (LI 4294967299) =?= 9)
+
+; BlitzResolve :: List (Instr Text) -> Row (Instr Int)
+= (blitzResolve prog)
+@ env
+    ^ snd (lfoldl _ [0 0] prog)
+    & ([i e] x@[n])
+    | If isLabel-x | (i, bstIns n i e)
+    | else         | (Inc i, e)
+| (env, array (lcatmap resolveInstr-env prog))
+
+=?= (["a" 1 [] ["b" 4 [] []]], [OP-5 OP-6 RF-1 RF-4 OP-7])
+  | blitzResolve | stream [OP-5 NM-"a" OP-6 RF-"a" RF-"b" NM-"b" OP-7]
+
+= (shrinkRef vprog sizes offs tab i)
+@ label | fst | Ix i vprog
+@ need | litWidth (Ix label offs)
+| If (Ge need | Ix i sizes) tab
+| bstIns i need tab
+
+= (mapi f row)        | array | lmapi f stream-row
+= (scanl f x row)     | array | lscanl f x stream-row
+= (prescanl f x row)  | array | lprescanl f x stream-row
+= (vmapi f row)       | Row Hd-row Sz-row       | lmapi f stream-row
+= (vscanl f x row)    | Row 0      (Inc Sz-row) | lscanl f x stream-row
+= (vprescanl f x row) | Row 0      Sz-row       | lscanl f x stream-row
+
+( vmapi 0 [2 3 4]          =?= [[0 2] [1 3] [2 4]]   )
+( vmapi 0 (1 2 3 4)        =?= (1 [0 2] [1 3] [2 4]) )
+( vscanl Add 3 [2 3 4]     =?= [3 5 8 12]            )
+( vprescanl Add 3 [2 3 4]  =?= [3 5 8]               )
+( scanl Add 3 [2 3 4]      =?= [3 5 8 12]            )
+( prescanl Add 3 [2 3 4]   =?= [3 5 8]               )
+
+= (shrinkRefs vprog refs sizes)
+@ offs    | scanl Add 0 sizes
+@ updates | lfoldl (shrinkRef vprog sizes offs) bstEmpty refs
+@ sizes2  | mapi (i sz & bstCase i updates sz) sizes
+; Trace ["offs"-offs "updates"-updates "sizes2"-sizes2]
+| Ifz updates sizes
+| shrinkRefs vprog refs sizes2
+
+= (encodeLit n)
+| If (Le n 120)        | Set 8 n
+| If (Le n 255)        | Set 16 | Add 255 | Lsh n 8
+| If (Le n 65535)      | Set 24 | Add 254 | Lsh n 8
+| If (Le n 4294967295) | Set 40 | Add 253 | Lsh n 8
+| else                 | Set 72 | Add 252 | Lsh n 8
+
+= (encodeInstr i@[n])
+@ tag Hd-i
+| If IsNat-i i
+| If tag (##encodeInstr [i "Why is this still here?"])
+| encodeLit n
+
+= (barWeld x y)
+@ xw (Bits x)
+@ xl Dec-xw
+@ yw (Bits x)
+| Add (Clear xl x) (Lsh y xl)
+
+( barWeld 256 256 =?= 65536 )
+( barWeld 257 256 =?= 65537 )
+( barWeld 256 257 =?= Add 65536 256 )
+
+= emptyBs        | 1
+= (bsSing byte)  | Set 8  | byte
+= (bsDuo lo hi)  | Set 16 | Add lo | Lsh hi 8
+= (bsTrip a b c) | Set 24 | Add a  | Add (Lsh b 8) (Lsh c 16)
+= (bsSz bar)     | Dec Bytes-bar
+
+= (showBs x)
+| "bar"
+@ n | bsSz x
+: i < gen n
+| Load8 i x
+
+( showBs (bsTrip "a" "b" "c") =?= "bar" ["a" "b" "c"] )
+
+= (bsCat row)
+| Trace | "bsCat" row
+@ wid | sum | map bsSz row
+| Trace | "wid" wid
+@ buf | Bex (Lsh wid 3)
+^ _ buf 0 0
+? (loop !buf !off !i)
+| Trace | "loop" buf off i
+| If (Ge off wid) buf
+@ bar | Ix i row
+@ siz | bsSz bar
+| Trace | "Store" siz off showBs-bar showBs-buf {->}
+        | showBs-(Store siz off bar buf)
+@ buf | Store off siz bar buf
+| loop buf (Add off siz) Inc-i
+
+= (bs row)
+@ wid Sz-row
+^ Set (Lsh wid 3) (_ 0 0 0)
+? (loop !acc i !o)
+| If (Ge i wid) acc
+@ acc | Add acc (Lsh (Ix i row) o)
+| loop acc Inc-i Add-8-o
+
+( bs ["a" "b"] =?= bsDuo "a" "b" )
+( bs [] =?= 1 )
+
+= (testBsCat cs)
+| bsCat (map bs cs)
+
+( bsCat []                                  =?= emptyBs                  )
+( bsCat [emptyBs]                           =?= emptyBs                  )
+( bsCat [emptyBs emptyBs]                   =?= emptyBs                  )
+( bsCat [bs-["a"]]                        =?= bsSing-"a"               )
+( bsCat (bs ["a"], emptyBs)               =?= bsSing-"a"               )
+( bsCat (bsSing "a", bsDuo "b" "c")         =?= bsTrip "a" "b" "c"       )
+( bsCat (bsTrip "a" "b" "c", bsDuo "d" "e") =?= bs ["a" "b" "c" "d" "e"] )
+
+( testBsCat []                           =?= bs []                    )
+( testBsCat [[]]                         =?= bs []                    )
+( testBsCat [[] []]                      =?= bs []                    )
+( testBsCat [["a"]]                      =?= bs ["a"]                 )
+( testBsCat [["a"]]                      =?= bs ["a"]                 )
+( testBsCat [["a"] ["b" "c"]]            =?= bs ["a" "b" "c"]         )
+( testBsCat [["a" "b" "c"] ["d" "e"]]    =?= bs ["a" "b" "c" "d" "e"] )
+( testBsCat [["a" "b" "c"] [] ["d" "e"]] =?= bs ["a" "b" "c" "d" "e"] )
+( testBsCat [,"a" ,"b" ,"c" ,"d" ,"e"]   =?= bs ["a" "b" "c" "d" "e"] )
+
+= (lbarCat xs) | lfoldr barWeld 1 xs
+= (barCat xs)  | lbarCat (stream xs)
+
+= (linker final)
+| barCat (map encodeInstr final)
+
+= (assembler iprog)
+| If (isLabel llastUnsafe-iprog)
+    | Die "input cannot end with a label!"
+@ [env vprog] | blitzResolve iprog
+@ step        | (i x)&((2 == Hd x) && lsing i)
+@ sizes       | map instrWidth vprog
+@ refrs       | lcatmapi step stream-vprog
+@ fsize       | shrinkRefs vprog refrs sizes
+@ offs        | prescanl Add 0 fsize
+@ final       : instr@[k] < turn vprog
+              | If (Ne 2 Hd-instr) instr
+              | LI (Ix k offs)
+; Trace ++ fill "iprog" iprog
+;       ++ "vprog"-vprog
+;       ++ "sizes"-sizes
+;       ++ "refrs"-refrs
+;       ++ "fsize"-fsize
+;       ++ "offs"-offs
+;       ++ "final"-final
+;       ++ "env"-env
+++ bstMapStrict i&(Ix i offs) env
+++ linker final
+
+fdsa=(barFromNat "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+
+=?=  ++ ["a" 2 [] ["b" 4 [] []]]
+     ++ linker [OP-5 LI-4 OP-6 LI-2 OP-7]
+  | assembler | stream [OP-5 RF-"b" NM-"a" OP-6 RF-"a" NM-"b" OP-7]
+
+=?=  ++ ["a" 2 [] ["b" 37 [] []]]
+     ++ linker [OP-5 LI-37 OP-6 fdsa LI-2 OP-7]
+  | assembler | stream [OP-5 RF-"b" NM-"a" OP-6 fdsa RF-"a" NM-"b" OP-7]
+
+= (simpleSymbolText rex)
+| And (Nil rexHeir-rex)
+| And (Nil rexSons-rex)
+| And (rexIsWord rex)
+| rexText rex
+
+= (prefixedSymbolRuneText rex)
+@ sons@[son] (rexSons rex)
+@ text       (simpleSymbolText son)
+| And (Nil rexHeir-rex)
+| And (Eq 1 Sz-sons)
+| And text
+| (rexRune rex, text)
+
+= (parseBlitzType ss rex)
+@ normal            | simpleSymbolText rex
+@ res@[rune linear] | prefixedSymbolRuneText rex
+| If normal         | (normal, TY_BOR) ; ') TODO: the default argument type
+| If (Eq "^" rune)  | (linear, TY_BOR) ; ') should be a borrow, but the
+| If (Eq "@" rune)  | (linear, TY_VAL) ; ') default return should be shared.
+| If (Eq "#" rune)  | (linear, TY_OWN)
+| else              | sireErr ss rex "Bad blitz type spec"
+
+( parseBlitzType 0 'foo    =?= ("foo", TY_BOR) )
+( parseBlitzType 0 '(^foo) =?= ("foo", TY_BOR) )
+( parseBlitzType 0 '(@foo) =?= ("foo", TY_VAL) )
+( parseBlitzType 0 '(#foo) =?= ("foo", TY_OWN) )
+
+= (parseBlitzTypeSeq ss rex)
+| If (rexRune rex == "|") (map parseBlitzType-ss rexKids-rex)
+@ !res (parseBlitzType ss rex)
+| [res]
+
+= (parseBlitzArmSig ss rex)
+@ rune          | rexRune rex
+@ sons@[in out] | rexSons rex
+@ inputs        | parseBlitzTypeSeq ss in
+@ inTypes       | map snd inputs
+@ inNames       | map fst inputs
+@ outputs       | parseBlitzTypeSeq ss out
+@ outTypes      | map snd outputs
+@ bad           | sireErr ss rex "bad sig"
+| And rex
+| If (Ne "->" rune) | bad
+| If (rexHeir rex)  | bad
+| If (Ne 2 Sz-sons) | bad
+| Strict 3 inTypes outTypes inNames
+| [[inTypes outTypes] inNames]
+
+= (parseBlitzLabel ss rex)
+@ rune                 | rexRune rex
+@ kids@[!info]         | rexKids rex
+@ [!type !env]         | parseBlitzArmSig ss (rexHeir info)
+@ !public              | Eq ":" rune
+| If (Ne 1 Sz-kids)    | sireErr ss rex "Bad label form"
+| Ifz (rexIsWord info) | sireErr ss rex "Bad label name"
+| NM public (rexText info) type env
+
+} - {B_LAB} is a reference to a label.
+
+# simpledata Bxp
+- B_LET nms:(Row Str) x:Bxp b:Bxp
+- B_APP o:Bar xs:(Row Bxp)
+- B_LIT x:Any
+- B_REF m:Str
+- B_LAB m:Str
+- B_IFP tail:Bit c:Bxp t:Bxp e:Bxp
+- B_SWI tail:Bit scrut:Bxp cases:(Row Bxp) fallback:Bxp
+
+= (parseBlitzOper ss rex)
+@ word | rexText rex
+@ fail | sireErr ss rex "bad blitz oper"
+| If (rexHeir rex || not rexIsWord-rex) fail
+: op < instrCodeOr blitzTable word (0, word)
+| (1, op)
+
+= (parseBlitzBinder ss rex)
+@ text | rexText rex
+@ heir | rexHeir rex
+@ sons | rexSons rex
+@ rune | rexRune rex
+@ fail | sireErr ss rex "Bad blitz binder"
+^ Force (map readSymbolEx-ss _)
+| If heir            | fail
+| If (rexIsWord rex) | [rex]
+| else               | fail
+
+= (parseBlitzLeaf ss rex)
+@ text  | rexText rex
+@ style | rexStyle rex
+@ fail  | sireErr ss rex "This is an invalid Blitz leaf."
+| If rexHeir-rex fail
+| If "TEXT"==style
+    | B_LIT text
+| If "WORD"==style
+    | Ifz (isSireDecimal text) (B_REF text)
+    | B_LIT (loadSireDecimal text)
+| else
+    | fail
+
+= callOp | blitzLookupInstruction "call"
+= incOp  | blitzLookupInstruction "inc"
+= decOp  | blitzLookupInstruction "dec"
+= addOp  | blitzLookupInstruction "add"
+= lshOp  | blitzLookupInstruction "lsh"
+= rshOp  | blitzLookupInstruction "rsh"
+= ltOp   | blitzLookupInstruction "lt"
+= gtOp   | blitzLookupInstruction "gt"
+
+= (getBlitzCases parseBlitzExpr ss rex acc)
+| If ("*" == rexRune rex)
+    @ !item (parseBlitzExpr ss (rexSetRune "|" (rexSetHeir 0 rex)))
+    | getBlitzCases parseBlitzExpr ss rexHeir-rex (acc item)
+| else
+    @ !fallback (parseBlitzExpr ss rex)
+    | [acc fallback]
+
+= (parseBlitzCase parseBlitzExpr ss rex)
+@ fail         | sireErr ss rex "Malformed switch expression (~)"
+@ heir         | rexHeir rex
+@ sons         | rexSons rex
+@ nSon         | Sz sons
+@ scrut        | parseBlitzExpr ss | rexSetRune "|" | rexSetHeir 0 rex
+@ [cases fall] | getBlitzCases parseBlitzExpr ss heir 0
+| Ifz nSon fail
+| Ifz heir fail
+| Force (B_SWI 0 scrut cases fall)
+
+
+= (parseBlitzExpr ss rex)
+@ rune | rexRune rex
+@ heir | rexHeir rex
+@ kids | rexKids rex
+@ nKid | Sz kids
+@ fail | sireErr ss rex "This is an invalid Blitz expression."
+| If (rexIsLeaf rex)
+    | parseBlitzLeaf ss rex
+| If ("~" == rune)
+    | parseBlitzCase parseBlitzExpr ss rex
+| If (("|" == rune) || ("-" == rune))
+    | If (1 == nKid)
+        @ target | fst kids
+        | parseBlitzExpr ss target
+    | Ifz nKid fail
+    @ (isOp, op) | parseBlitzOper ss fst-kids
+    @ xs         | map parseBlitzExpr-ss (drop 1 kids)
+    | Strict 3 isOp op Force-xs
+    | If isOp (B_APP op xs)
+    | B_APP callOp (cons (B_LAB op) xs)
+| If ("?" == rune)
+    | If (3 != nKid) fail
+    | Force | Coup B_IFP | cons 0 | map parseBlitzExpr-ss kids
+| If ("&" == rune)
+    @ [_ name] | prefixedSymbolRuneText rex
+    | Ifz name fail
+    | B_LAB name
+| If ("^" == rune)
+    @ [_ name] | prefixedSymbolRuneText rex
+    | Ifz name fail
+    @ oVal (lookupVal name ss)
+    | Ifz oVal fail
+    | B_LIT fst-oVal
+| If ("<<" == rune)
+    | If (Ne 2 nKid) fail
+    @ [x y] | map parseBlitzExpr-ss kids
+    | B_APP lshOp (x, y)
+| If (">>" == rune)
+    | If (Ne 2 nKid) fail
+    @ [x y] | map parseBlitzExpr-ss kids
+    | B_APP rshOp (x, y)
+| If ("<" == rune)
+    | If (Ne 2 nKid) fail
+    @ [x y] | map parseBlitzExpr-ss kids
+    | B_APP ltOp (x, y)
+| If (">" == rune)
+    | If (Ne 2 nKid) fail
+    @ [x y] | map parseBlitzExpr-ss kids
+    | B_APP gtOp (x, y)
+| If ("++" == rune)
+    | If (Ne 1 nKid) fail
+    | Force | B_APP incOp | map parseBlitzExpr-ss kids
+| If ("--" == rune)
+    | If (Ne 1 nKid) fail
+    | Force | B_APP decOp | map parseBlitzExpr-ss kids
+| If ("+" == rune)
+    | If (Ne 2 nKid) fail
+    | Force | B_APP addOp | map parseBlitzExpr-ss kids
+| If ("=" == rune)
+    @ last Dec-nKid
+    @ befo Dec-last
+    | If (Lt nKid 2) fail
+    @ bodRex (Ix last kids)
+    @ expRex (Ix befo kids)
+    @ nmsRex (take befo kids)
+    @ !nms | map readSymbolEx-ss nmsRex
+    @ !exr | parseBlitzExpr ss expRex
+    @ !bod | parseBlitzExpr ss bodRex
+    | B_LET nms exr bod
+| fail
+
+
+; ') TODO: Parse blitz expression into the above structure.
+
+; ') TODO: Traverse the above and convert every name (binding and
+; ') reference) into a unique number.
+
+; ') TODO: Traverse the structure and calculate the number of references
+; ') for each binding.
+;
+; ') TODO: After each let, insert a DEL of any unused bindings.
+;
+; ') TODO: Compile the expression to a list of instructions by
+; ') traversing it while threading through the stack shapea s well as
+; ') the table of usage counts, decrementing the usage each time we
+; ') process a reference.
+
+= valueOp | blitzLookupInstruction "value"
+= dropOp  | blitzLookupInstruction "drop"
+= snipOp  | blitzLookupInstruction "snip"
+= retOp   | blitzLookupInstruction "return"
+= dupOp   | blitzLookupInstruction "dup"
+= pickOp  | blitzLookupInstruction "pick"
+= rollOp  | blitzLookupInstruction "roll"
+= swapOp  | blitzLookupInstruction "swap"
+= jzOp    | blitzLookupInstruction "jz"
+= caseOp  | blitzLookupInstruction "case"
+= jumpOp  | blitzLookupInstruction "jump"
+= callOp  | blitzLookupInstruction "call"
+
+= rollOps
+++ []
+++ lsing | OP swapOp
+++ lsing | OP | blitzLookupInstruction "rot"
+++ lsing | OP | blitzLookupInstruction "roll3"
+++ lsing | OP | blitzLookupInstruction "roll4"
+++ lsing | OP | blitzLookupInstruction "roll5"
+++ lsing | OP | blitzLookupInstruction "roll6"
+++ lsing | OP | blitzLookupInstruction-"roll7"
+
+= pickOps
+++ lsing | OP dupOp
+++ lsing | OP | blitzLookupInstruction "over"
+++ lsing | OP | blitzLookupInstruction "pick2"
+++ lsing | OP | blitzLookupInstruction "pick3"
+++ lsing | OP | blitzLookupInstruction "pick4"
+++ lsing | OP | blitzLookupInstruction "pick5"
+++ lsing | OP | blitzLookupInstruction "pick6"
+++ lsing | OP | blitzLookupInstruction-"pick7"
+
+= snipOps
+++ lsing | OP dropOp
+++ lsing | OP | blitzLookupInstruction "nip"
+++ lsing | OP | blitzLookupInstruction "snip2"
+++ lsing | OP | blitzLookupInstruction "snip3"
+++ lsing | OP | blitzLookupInstruction "snip4"
+++ lsing | OP | blitzLookupInstruction "snip5"
+++ lsing | OP | blitzLookupInstruction "snip6"
+++ lsing | OP | blitzLookupInstruction-"snip7"
+
+= (emitRoll i)
+| Case i rollOps
+| [OP-i [OP-rollOp []]]
+
+= (emitPick i)
+| Case i pickOps
+| [OP-i [OP-pickOp []]]
+
+= (emitSnip i)
+| Case i snipOps
+| [OP-i [OP-snipOp []]]
+
+} BL_LABL: Mark the next instruction with a new (untyped) label.
+} BL_LREF: Push label address
+
+# simpledata Blop
+- BL_PUSH Any
+- BL_LABL Str
+- BL_LREF Str
+- BL_COPY Str
+- BL_DROP Str
+- BL_MOVE Str
+- BL_EXEC Str Int
+- BL_IFPO tail:Bit then:Blop else:Blop
+- BL_CASE tail:Bit cases:(Row Blop) fallback:Blop
+
+; ') Binder = Row (Name | 0)
+; ') Bexec  = List (Binder, Bop)
+
+= (genLabel bloc note nex)
+++ Inc nex
+++ strCat (bloc, ".", note, "--", showNat nex)
+
+( (4, "block.hi--3") =?= genLabel "block" "hi" 3 )
+
+= (bzgenLookup nm env)
+| lfindix Eq-nm env (| Die | "bzgenStep" | "unbound" nm) x&x
+
+; bzgenIfStmt : Str -> List Blop -> List Blop -> Nat -> (Nat, List Blop)
+= (bzgenIfStmt blockName thenBr elseBr nex)
+@ [!nex !eLabel] | genLabel blockName "else" nex
+ ^ (nex, lcat stream-_)
+++ (RF eLabel, (OP jzOp, thenBr))
+++ (NM 0 eLabel, elseBr)
+
+; bzgenIfExpr : Str -> List Blop -> List Blop -> Nat -> (Nat, List Blop)
+= (bzgenIfExpr blockName thenBr elseBr nex)
+@ [!nex !endLabel] | genLabel blockName "done" nex
+@ thenBr           | lweld thenBr (RF endLabel, (OP jumpOp, 0))
+@ [!nex !out]      | bzgenIfStmt blockName thenBr elseBr nex
+| (nex, lsnoc out (NM 0 endLabel))
+
+= (bzgenCaseStmt blockName brs defaultBr nex)
+@ labelNames    | gen Sz-brs n&(strWeld showNat-n "case")
+@ [!nex labels] | mapstate genLabel-blockName labelNames nex
+ @ [nilLabel oneLabel twoLabel] labels
+ ^ (nex, lcat stream-_)
+++ lmap RF streamRev-labels
+++ (OP Sz-brs, (OP caseOp, defaultBr))
+++ | lcat | stream | zipWith (lab br & (NM 0 lab, br)) labels brs
+
+; '] TODO: bzgenCaseExpr should not add a jump to the final branch,
+; '] since that can just fall through to continuation.
+
+= (appendJump endLabel branch)
+| lweld branch (RF endLabel, (OP jumpOp, []))
+
+= (bzgenCaseExpr blockName brs defaultBr nex)
+@ [!nex !endLabel] | genLabel blockName "done" nex
+@ defaultBr        | appendJump endLabel defaultBr
+@ initialBrs       | map appendJump-endLabel (init brs)
+@ brs              | (brs && initialBrs Last-brs)
+@ [!nex !out]      | bzgenCaseStmt blockName brs defaultBr nex
+| (nex, lsnoc out (NM 0 endLabel))
+
+= (bzgenIf bzgen bloc names tailpos t e st@[nex env])
+@ env                | snd env
+@ [[nex te] tx]      | bzgen bloc t [nex env]
+@ [[nex ee] ex]      | bzgen bloc e [nex env]
+| If (planNeq te ee) | Die [planNeq te ee]
+@ (!nex, rSeq)       | (If tailpos bzgenIfStmt bzgenIfExpr) bloc tx ex nex
+@ re                 | ldrop Sz-names te
+| [[nex re] rSeq]
+
+= (bzgenCase bzgen bloc names tailpos cases fb st@[nex env])
+@ proc                | If tailpos bzgenCaseStmt bzgenCaseExpr
+@ env                 | snd env
+@ hmm                 & (branch nex)
+                      @ [[nex env] exe] | bzgen bloc branch [nex env]
+                      | [nex [env exe]]
+@ [nex brs]           | mapstate hmm cases nex
+@ [nex [fbEnv fbExe]] | hmm fb nex
+@ brEnvs              | map fst brs
+@ brExes              | map snd brs
+@ allMatch            | all ([bEnv _] & planEql fbEnv bEnv) brs
+| Ifz allMatch        | Die [all planEql-fbEnv brEnvs]
+@ (!nex, resExe)      | proc bloc brExes fbExe nex
+@ resEnv              | ldrop Sz-names fbEnv
+| [[nex resEnv] resExe]
+
+
+= (bzgenStep bzgen bloc names instr st@[nex env])
+| place [bzgenStep bloc instr st]
+^ place [bzgenStep bloc instr st {->} _] _
+| Force
+# simplecase instr (##bzgenStep instr)
+- BL_LREF n      ++ st
+                 ++ lsing RF-n
+- BL_PUSH n      ++ st
+                 ++ lsing encodeLit-n
+- BL_COPY nm      @ i (bzgenLookup nm env)
+                 ++ st
+                 ++ emitPick i
+- BL_DROP nm      @ i (bzgenLookup nm env)
+                 ++ (nex, ldel i env)
+                 ++ emitSnip i
+- BL_MOVE nm      @ i (bzgenLookup nm env)
+                 ++ (nex, ldel i env)
+                 ++ emitRoll i
+- BL_EXEC o a    ++ (nex, ldrop a env)
+                 ++ lsing OP-o
+- BL_IFPO tp t e  | bzgenIf bzgen bloc names tp t e st
+- BL_CASE tp cs f | bzgenCase bzgen bloc names tp cs f st
+
+    ; ') The top of the environment is the number of cases.
+    ; ')
+    ; ') And then there are `n` labels.
+    ; ')
+    ; ') And then there is the value that we wish to inspect
+    ; ')
+    ; ') Oh, but that's all at runtime, and that's all handled
+    ; ') implcitly by this logic.
+    ; ')
+    ; ') In the compiler, the only thing on the stack is the value that
+    ; ') we wish to inspect, so this works in exactly the same way as
+    ; ') IF does.
+    ; ')
+
+    ; ') What does the generated code look like for this construct?
+    ; ')
+    ; ') In the expression case:
+    ; ')
+    ; ')     (~ value)(* a)(* b)f
+    ; ')
+    ; ')         =>
+    ; ')
+    ; ')     *before*
+    ; ')     &a &b 2 case
+    ; ')     {{f}}    &break jump
+    ; ')     :a {{a}} &break jump
+    ; ')     :b {{b}}
+    ; ')     :break
+    ; ')     *after*
+
+    ; ') In the statement case:
+    ; ')
+    ; ')     (~ value)(* a)(* b)f
+    ; ')
+    ; ')         =>
+    ; ')
+    ; ')     *before*
+    ; ')     &a &b 2 case
+    ; ')     {{f}}
+    ; ')     :a {{a}}
+    ; ')     :b {{b}}
+    ; ')     *after*
+
+= (bzgen bloc bexec st)
+; Trace ["bzgen" bloc array-bexec st]
+; Trace ["bzgen" bloc array-bexec st {->} _] _
+^   @ (st, outs) | lmapstate _ bexec st
+    | (st, lcat outs)
+& ([names instr] st)
+; Trace "bzgen_in"-names-instr-st
+@ out@[[nex env] code] (bzgenStep bzgen bloc names instr st)
+; Trace "bzgen_out"-out
+| ((nex, lweld stream-names env), code)
+
+=?=   ^ snd (bzgen "block" stream-_ [1 stream-["a" "b"]])
+     ++ ( ["a"], BL_PUSH 3       )
+     ++ ( ["b"], BL_PUSH 4       )
+     ++ ( [0]  , BL_MOVE "b"     )
+     ++ ( [0],   BL_EXEC addOp 2 )
+  | stream-[OP-3 OP-4 OP-addOp]
+
+=?=   ^ snd (bzgen "block" stream-_ [1 stream-["a" "b"]])
+     ++ ( ["a"], BL_PUSH 3       )
+     ++ ( ["b"], BL_PUSH 4       )
+     ++ ( [0]  , BL_MOVE "a"     )
+     ++ ( [0],   BL_EXEC addOp 2 )
+  | stream-[OP-3 OP-4 OP-swapOp OP-addOp]
+
+=?=   ^ snd (bzgen "block" stream-_ [1 stream-["a" "b"]])
+     ++ ( ["a"], BL_PUSH 3       )
+     ++ ( ["b"], BL_PUSH 4       )
+     ++ ( [0]  , BL_COPY "b"     )
+     ++ ( [0]  , BL_MOVE "b"     )
+     ++ ( [0]  , BL_DROP "a"     )
+     ++ ( [0],   BL_EXEC addOp 2 )
+  | stream-[OP-3 OP-4 OP-dupOp OP-swapOp (lix 0 | Ix 2 snipOps) OP-addOp]
+
+(spair !x !y)=[x y]
+
+; This converts the final reference to every variable into a BL_MOVE
+; (which will generate a roll instruction instead of pick), and it also
+; generates a BL_DROP (which will generate a snip instruction) immediately
+; after each instruction which introduces a new binding that is never used.
+
+= (bstSubtract x y)
+| lfoldl (t [k _] & bstDel k t) x bstWalk-y
+
+(bstUnions row)=(foldl bstUnion bstEmpty row)
+
+= (bzAddDrops allSeen [brSeen brExe])
+^ lweld _ brExe
+| lmap [k v]&(([], BL_DROP k))
+| bstWalk
+| bstSubtract allSeen brSeen
+
+= (bzDropCases go nex seen cases)
+@ [!nex results]
+    ^ mapstate _ cases nex
+    & (x nex)
+    @ [a b c] | go [] nex seen NIL x
+    | [a [b c]]
+@ uSeen | bstUnions (map fst results)
+| [nex uSeen (map bzAddDrops-uSeen results)]
+
+= (bzDropAndRoll args rseq)
+^ Ix 2 (_ args 1 bstEmpty NIL rseq)
+? (go args nex seen acc rseq@[e@[nms i] is])
+@ acc
+    ^ lweld _ acc
+    | lmap x&[0 BL_DROP-x]
+    | lfilter x&(x && Nil (bstHas x seen))
+    | stream
+    | Ifz rseq args nms
+| Ifz rseq [nex seen acc]
+@ malformed | ##bzDropAndRoll | "Unexpected" i "in"-e
+@ seen      | foldr (n t)&(Ifz n t | bstDel n t) seen nms
+@ keep      | go args nex seen [e acc] is
+# simplecase i malformed
+- BL_PUSH _   | keep
+- BL_LREF _   | keep
+- BL_EXEC _ _ | keep
+- BL_COPY v   | If (bstHas v seen) keep
+              @ seen | bstIns v 1 seen
+              @ acc  | [(nms, BL_MOVE v) acc]
+              | go args nex seen acc is
+- BL_IFPO tail t e
+    @ [!nex uSeen [tSeq eSeq]] | bzDropCases go nex seen [t e]
+    ^ go args nex uSeen _ is
+    | lcons (nms, BL_IFPO tail tSeq eSeq) acc
+- BL_CASE tail cases fallback
+    @ [!nex uSeen results] | bzDropCases go nex seen (cons fallback cases)
+    @ fSeq                 | fst results
+    @ caseSeqs             | drop 1 results
+    ^ go args nex uSeen _ is
+    | lcons (nms, BL_CASE tail caseSeqs fSeq) acc
+
+= (bzLitExtractSeq step seq vals)
+@ [vals lists] | lmapstate step seq vals
+| (vals, lcat lists)
+
+= (bzLitExtract item@(binds, expr) vals)
+@ keep (vals, lsing item)
+# simplecase expr keep
+- BL_PUSH n
+    | If (IsNat n && Lt Bits-n 64) keep
+    | (vals n, [([0], BL_PUSH Sz-vals) [(binds, BL_EXEC valueOp 1) []]])
+- BL_IFPO tail then else
+    @ [vals then] | bzLitExtractSeq bzLitExtract then vals
+    @ [vals else] | bzLitExtractSeq bzLitExtract else vals
+    | (vals, lsing (binds, BL_IFPO tail then else))
+- BL_CASE tail cases fallback
+    @ [vals cases]    | mapstate bzLitExtractSeq-bzLitExtract cases vals
+    @ [vals fallback] | bzLitExtractSeq   bzLitExtract fallback vals
+    | (vals, lsing (binds, BL_CASE tail cases fallback))
+
+= (bzFlat names exp acc)
+| Trace [bzFlat names exp array-acc]
+# simplecase exp (##bzFlat | "malformed" exp)
+- B_LET bind v b | bzFlat names b (bzFlat bind v acc)
+- B_LAB label    | lcons (names, BL_LREF label)    | acc
+- B_APP op xs    | lcons (names, BL_EXEC op Sz-xs) | foldr bzFlat-[0] acc xs
+- B_LIT x        | lcons (names, BL_PUSH x)        | acc
+- B_REF n        | lcons (names, BL_COPY n)        | acc
+- B_IFP tail c t e
+    | lcons (names, BL_IFPO tail (bzFlat [0] t NIL) (bzFlat [0] e NIL))
+    | bzFlat [0] c
+    | acc
+- B_SWI tail s cs f
+    @ hc c&(bzFlat [0] c NIL)
+    | lcons (names, BL_CASE tail (map hc cs) (hc f))
+    | bzFlat [0] s
+    | acc
+
+(sap f !x)=(f x)
+
+= (bzFlatten args e)
+| Trace (bzFlatten args)
+| bzDropAndRoll args
+| bzFlat 0 e NIL
+
+=?=   ++ (["x"], BL_PUSH 5)
+      ++ ([0],   BL_MOVE "x")
+      ++ ([],    BL_EXEC retOp 1)
+  ^ array (bzFlatten [] _)
+  | B_APP retOp
+ ++ B_LET ["x"] B_LIT-5 B_REF-"x"
+
+=?=   ++ (["a"], BL_PUSH 5)
+      ++ (["b"], BL_PUSH 6)
+      ++ ([],    BL_DROP "b")
+      ++ ([0],   BL_MOVE "a")
+      ++ ([],    BL_EXEC retOp 1)
+  ^ array (bzFlatten [] _)
+  | B_LET ["a"] B_LIT-5
+  | B_LET ["b"] B_LIT-6
+  | B_APP retOp [B_REF-"a"]
+
+=?=   ++ ([],    BL_DROP "a")
+      ++ ([],    BL_DROP "b")
+      ++ ([],    BL_DROP "c")
+      ++ (["x"], BL_PUSH 5)
+      ++ ([0],   BL_MOVE "x")
+      ++ ([],    BL_EXEC retOp 1)
+  | array
+  | bzFlatten ["a" "b" "c"]
+  | B_APP retOp
+ ++ B_LET ["x"] B_LIT-5 B_REF-"x"
+
+=?=   ++ ([0],   BL_MOVE "b")
+      ++ ([0],   BL_MOVE "a")
+      ++ (["x"], BL_EXEC addOp 2)
+      ++ ([0],   BL_COPY "x")
+      ++ ([0],   BL_MOVE "x")
+      ++ ([0],   BL_EXEC addOp 2)
+      ++ ([0],   BL_PUSH 1)
+      ++ (0,     BL_EXEC retOp 2)
+  | array
+  | bzFlatten []
+              | B_LET ["x"]
+                  | B_APP addOp (B_REF "a", B_REF "b")
+              | B_APP retOp
+             ++ B_LIT 1
+             ++ B_APP addOp (B_REF "x", B_REF "x")
+
+= (showExe bar)
+| fill "EXE" | lmap renderInstr | stream | barExplode bar
+
+= (bzRenameStr str nex)
+| spair Inc-nex (strWeld (strWeld str ".") showNat-nex)
+
+= (bzRnm env expr nex)
+# simplecase expr (##bzRnm | "malformed" expr)
+- B_IFP tail c t e
+    @ (nex, [c t e]) | mapstate bzRnm-env [c t e] nex
+    | (nex, B_IFP tail c t e)
+- B_SWI tail s cs f
+    @ (nex, cs)    | mapstate bzRnm-env cs nex
+    @ (nex, [s f]) | mapstate bzRnm-env [s f] nex
+    | (nex, B_SWI tail s cs f)
+- B_LET binder value body
+    @ [nex val] | bzRnm env value nex
+    @ [nex nms] | mapstate bzRenameStr binder nex
+    @ !env      | lfoldl (t kv & bstIns fst-kv snd-kv t) env stream-(zip binder nms)
+    @ [nex bod] | bzRnm env body nex
+    | (nex, B_LET nms val bod)
+- B_LAB label
+    (nex, expr)
+- B_APP op xs
+    @ (nex, xs) | mapstate bzRnm-env xs nex
+    | (nex, B_APP op xs)
+- B_LIT x
+    (nex, expr)
+- B_REF n
+    ; Trace "ENVIRONMENT"-env-n
+    | (nex, B_REF (bstIdx n env))
+
+= (bzRename argNames e)
+@ [nex args] | mapstate bzRenameStr argNames 0
+@ env        | bstFromPairsList (lzip stream-argNames stream-args)
+@ [nex expr] | bzRnm env e nex
+| [args expr]
+
+= (blitzAutoReturn expr)
+@ go blitzAutoReturn
+# simplecase expr (##blitzAutoReturn | "malformed" expr)
+- B_REF _           | B_APP retOp [expr]
+- B_LAB _           | B_APP retOp [expr]
+- B_LIT x           | B_APP retOp [expr]
+- B_IFP tail c t e  | B_IFP 1 c (go t) (go e)
+- B_SWI tail s cs f | B_SWI 1 s (map go cs) (go f)
+- B_LET n v b       | B_LET n v (go b)
+- B_APP op xs       | If (Eq retOp op) expr
+                    | If (Eq jumpOp op) expr
+                    | If (Eq callOp op) (B_APP jumpOp xs)
+                    | B_APP retOp [expr]
+
+= (compileBlitzFunc ss vals label@[_public name [_i _o] args] rex)
+@ e        | parseBlitzExpr ss rex
+; Trace | "BLITZEXPR" e args
+@ e        | blitzAutoReturn e
+; Trace | "BLITZEXPR" e args
+@ [args f] | bzRename args e
+@ g        | bzFlatten args f
+@ [vals h] | bzLitExtractSeq bzLitExtract g vals
+@ i        | snd (bzgen name h (1, stream-args))
+; Trace | "BLITZRENAMED" f args
+; Trace | fill "BLITZFLAT" g
+; Trace | fill "BLITZLIT" ["args"-args ["vals"-vals h]]
+; Trace | "BLITZOUT" i
+; Trace | fill "BLITZOUT" (lmap renderBInstr i)
+| (vals, i)
+
+= (isExprRune rune)
+| has rune ["~" "?~" "?" "<" ">" "<<" ">>" "++" "--" "+" "=" "-" "|"]
+
+
+= (parseBlitzElem ss [vals lastOutput@[lastResult]] rex)
+@ unknown
+    | If rexIsWord-rex
+        @ s    | rexText rex
+        @ s    | If Eq-"ret"-s "return" s
+        @ ins  | blitzLookupInstruction s
+        @ !ins | If IsNat-ins ins (encodeLit fst-ins) ; TODO: things besides u64
+        ; Trace "ins"-ins
+        | (vals, lsing (OP ins))
+    | else
+        | ##BlitzParse rex
+@ expr
+    | Ifz (Eq 1 llen-lastOutput)
+        | sireErr ss rex "expression not attached to a label"
+    | Ifz (isLabel lastResult)
+        | sireErr ss rex "expression not attached to a label"
+    | compileBlitzFunc ss vals lastResult rex
+@ label
+    @ !label | parseBlitzLabel ss rex
+    | (vals, lsing label)
+@ refer
+    @ !t | rexText | fst | rexKids rex
+    | (vals, lsing RF-t)
+@ rune (rexRune rex)
+| Switch ["&" ":" "."] rune [refer label label]
+| If isExprRune-rune expr
+| unknown
+
+= (mkSignature labels symbols)
+;^ Trace
+;        ++ "labels" labels
+;        ++ "symbols" symbols
+;        ++ "result" _
+;    _
+^ array | lcat | lmap _ | lfilter Ix-2 labels
+& [public name [inputs outputs]]
+@ offset (bstIdx name symbols)
+@ record (name public inputs outputs)
+| [offset [record []]]
+
+= (derp x)
+| Ifz IsNat-x x
+| If (Gt x 511) x
+| renderInstr (Sub x 256)
+
+= ("#blitzcore" ss rex)
+@ kidList
+    | ldrop 1 | stream | rexKids rex
+@ [vals parsed]
+    ^ @ xyz  | lscanl _ ([], 0) kidList
+      @ res  | snd xyz
+      @ code | lcatmap snd res
+      @ vals | fst (llastUnsafe xyz)
+      | (vals, code)
+    & (lastResult kid)
+    ; Trace "lastResult"-lastResult-kid
+    | parseBlitzElem ss lastResult kid
+; Trace (fill "FUNK" parsed)
+; Trace ("vals" vals, fill "parsed" parsed)
+@ labels
+    | lfilter isLabel parsed
+; Trace (fill "flabels" labels)
+@ iprog
+    | lmap (x & Ifz isLabel-x x (NM snd-x)) parsed
+@ (symbols, bytes)
+    | assembler iprog
+@ main@[mainPublic mainName mainTypes@[mainInputs mainOutputs]]
+    | fst parsed
+| If Nil-parsed    | ##Blitz "empty core"
+| Ifz isLabel-main | ##Blitz "no initial label!"
+@ coreName  | mainName
+@ coreArity | Sz mainInputs
+@ signature | mkSignature labels symbols
+| Trace | fill "BLITZ_CORE_PARSED" (lmap derp iprog)
+^ (ss, (OPEN "#=" (WORD mainName 0, EMBD _) 0))
+; Trace
+;   | "mkCore" mainName coreArity vals bytes signature
+@ res (mkCore mainName coreArity vals bytes signature)
+| Trace | OPEN "#" [(WORD "NEWCORE" 0) EMBD-vals] (bzPrint res)
+res
+
+* # blitzcore :backjump(@v -> @v) dup drop 2 jump
+* # blitzcore :backcase(@v -> @v) dup drop 0 4 1 case ret
+* # blitzcore :selfjump(@v -> @v) dup drop 3 jump ret
+* # blitzcore :selfcase(@v -> @v) dup drop 0 5 1 case ret
+* # blitzcore :okayjump(@v -> @v) dup drop 4 jump ret
+* # blitzcore :okaycase(@v -> @v) dup drop 0 6 1 case ret
+; ( backjump 3 =?= "backjump" 3 )
+; ( backcase 3 =?= "resize" 3 )
+; ( selfjump 3 =?= "resize" 3 )
+; ( selfcase 3 =?= "resize" 3 )
+* ( okayjump 3 =?= 3 )
+* ( okaycase 3 =?= 3 )
+
+# blitzcore
+:test1(@v -> @v)
+    = a b c (call &test2 v)
+    | return b
+:test2(@v -> @v @v @v)
+    | return v (add 1 v) (add 2 v)
+
+(test1 3 =?= 4)
+
+; # blitzcore
+; :test1(@v -> @v)
+;     | return (v ?~ 3 ?~ 4)
+; :test2(@v -> @v)
+;     | return (v ? 3 ? 4)
+
+# blitzcore :bid(@v -> @_) ret
+
+(bid 3 =?= 3)
+
+# blitzcore
+:blitzConst(@x @y -> @v)
+    | jump &helper x y y
+.helper(@a @b @c -> @v)
+    | return a
+
+(blitzConst 3 4 =?= 3)
+
+pinHack=Pin
+
+# blitzcore
+:blitzPin(@item -> @_)
+    | return (apply 1 ^pinHack item)
+
+(blitzPin 0 =?= Pin)
+
+# blitzcore :blitzFst(@x -> @_)
+| return (ix 0 x)
+
+(blitzFst [3 4] =?= 3)
+
+# blitzcore :quadruple(@x -> @_)
+| return (add (add x x) (add x x))
+
+(quadruple 4 =?= 16)
+(quadruple 5 =?= 20)
+
+# blitzcore :blitzSnd(@v -> @_)
+| return (ix 1 v)
+
+(blitzSnd [3 4] =?= 4)
+
+# blitzcore :quadruple_(@x -> @_)
+= xx (add x x)
+| return (add xx xx)
+
+(quadruple_ 4 =?= 16)
+(quadruple_ 5 =?= 20)
+
+# blitzcore
+:litEx(@val -> @str)
+    | jump &silly val "x" "hi" "fdsa" "deadbeef" "ultra-ultra"
+:silly(@val @a @b @c @d @e -> @result)
+    | return (apply 6 0 val a b c d e)
+
+(litEx 3 =?= [3 "x" "hi" "fdsa" "deadbeef" "ultra-ultra"])
+
+# blitzcore
+:traceEx(@x @y -> @_)
+    = row (rep 0 x 2)
+    = (trace row)
+    | _up 1 y row
+
+(traceEx "hi" "byte" =?= ["hi" "byte"])
+
+# blitzcore
+:vsnoc(@row @x -> @_)
+    = n  | sz row
+    = b1 | rep 0 x inc-n
+    | _copy n 0 0 row b1
+
+( vsnoc []        999 =?= [999]         )
+( vsnoc [1 2 3 4] 999 =?= [1 2 3 4 999] )
+
+# blitzcore
+:vcons(@x @row -> @_)
+    = n   | sz row
+    = buf | rep 0 x inc-n
+    = buf | _copy n 0 1 row buf
+    | buf
+
+( vcons 999 []        =?= [999]         )
+( vcons 999 [1 2 3 4] =?= [999 1 2 3 4] )
+
+# blitzcore
+:vweld(@x @y -> @_)
+    = ny  | sz y
+    = nx  | sz x
+    | return | _copy ny 0 nx y
+             | _copy nx 0 0  x
+             | rep 0 0 (add nx ny)
+
+( vweld [3]       [4]       =?= [3 4]       )
+( vweld [3 4 5]   [6 7]     =?= [3 4 5 6 7] )
+( vweld []        [1 2 3 4] =?= [1 2 3 4] )
+( vweld [1]       [2 3 4]   =?= [1 2 3 4] )
+( vweld [1 2]     [3 4]     =?= [1 2 3 4] )
+( vweld [1 2 3]   [4]       =?= [1 2 3 4] )
+( vweld [1 2 3 4] []        =?= [1 2 3 4] )
+
+# blitzcore
+:vins(@k @v @t -> @_)
+    = nt           | sz t
+    = k v t nt     | jnz &oob (gt k nt) k v t nt
+    = res          | rep 0 v inc-nt
+    | _copy k  0 0     t
+    | _copy nt k inc-k t
+    | res
+.oob(@k @v @t @nt -> @_)
+    | return t
+
+( vins 0 999 [4 5 6]       =?= [999 4 5 6] )
+( vins 1 999 [4 5 6]       =?= [4 999 5 6] )
+( vins 2 999 [4 5 6]       =?= [4 5 999 6] )
+( vins 3 999 [4 5 6]       =?= [4 5 6 999] )
+( vins 4 999 [4 5 6]       =?= [4 5 6]     )
+
+# blitzcore
+:vdel(@k @t -> @_)
+    = nt     | sz t
+    = k t nt | jnz &oob (ge k nt) k t nt
+    = res    | rep 0 0 dec-nt
+    | _copy nt inc-k k t
+    | _copy k  0     0 t
+    | res
+.oob(^k @t ^nt -> @_)
+    | return t
+
+( vdel 0 [4 5 6] =?= [5 6]   )
+( vdel 1 [4 5 6] =?= [4 6]   )
+( vdel 2 [4 5 6] =?= [4 5]   )
+( vdel 3 [4 5 6] =?= [4 5 6] )
+
+; ') ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# blitzcore
+:bex_owned(^n -> @_)
+    = x (bex n)
+    = y (bex x)
+    | add x y
+
+( bex_owned 1 =?= 6  )
+( bex_owned 2 =?= 20 )
+
+# blitzcore
+:bex_set(^n -> @_)
+    = x (bex n)
+   ;= a (hd x)
+   ;    ; If you uncomment this, it will fail,
+   ;    ; because this operation leaks!
+    = n (bits x)
+        ; However, this operation doesn't leak, so
+        ; we are free to use it on unique values
+        ; and then still modify the value later.
+   ;= z (_set x x)
+        ; This fails because x has live aliases during
+        ; the operation, and that causes both of the xs
+        ; to be downgraded to shared.
+    | add n (_set 0 x)
+        ; This works!  Since we have only borrowed x,
+        ; we are still free to mutate it in place.
+
+( bex_set 0 =?= 2 )
+( bex_set 1 =?= 5 )
+( bex_set 2 =?= 8 )
+
+
+; ') TODO support the truncation of mutable arrays.
+
+(trace4 f a b c d)=(Trace (f a b c d) 0)
+
+# blitzcore
+:silly(@a -> @a)
+    = buf   | rep 0 a 5
+    = buf x | call &goose buf a
+    | return (apply 2 0 buf x)
+:goose(#buf @x -> #buf @x)
+    | return buf x
+
+(silly 3 =?= ([3 3 3 3 3], 3))
+
+# blitzcore
+:qsort(@row -> @_)
+    = (trace "qsort")
+    = n (sz row)
+    = res | call &loop 0 dec-n | _copy n 0 0 row | rep 0 0 n
+    = (trace "qsort.done")
+    | return res
+:traceStep(@tag @off @wid #buf -> #buf)
+    = out | rep 0 0 wid
+    = out | _copy wid off 0 buf out
+    = (trace (apply 3 tag off wid out))
+    | return buf
+:vswap(@i @j #buf -> #_)
+    = (trace "vswap")
+    = x | ix i buf
+    = y | ix j buf
+    | return | _up i y | _up j x buf
+.loop(@lo @hi #buf -> #_)
+    = (trace "loop")
+    = (trace (apply 2 "loop" lo hi))
+    = lo hi buf | jnz &break (ge lo hi) lo hi buf
+    = (trace "loop.nobreak")
+    = pivot | ix hi buf
+    = (trace "loop.nobreak.got")
+    = (trace (apply 1 "loop.nobreak.got" pivot))
+    = p buf     | call &part pivot lo lo hi buf
+    | jump &loop inc-p hi
+    | call &loop lo    dec-p
+    | buf
+.break(@lo @hi #buf -> #_)
+    = (trace "break")
+    | return buf
+.part(@pivot @i @j @hi #buf -> @p #_)
+    = (trace "part")
+    = (trace (apply 1 "part" pivot))
+    = buf              | call &traceStep "ASDFF" i (sub j i) buf
+    = pivot i j hi buf | jnz &ok (ge j hi) pivot i j hi buf
+    = (trace "part.nopivot")
+    = vj               | ix j buf
+    = (trace "part.nopivot.got")
+    = (trace (apply 1 "part.nopivot.got" vj))
+    = bool (le vj pivot)
+    = (trace "part.nopivot.got.checked")
+    = pivot i j hi buf | jnz &less bool pivot i j hi buf
+    = (trace "part.noless")
+    | jump &part pivot i inc-j hi buf
+.ok(@pivot @i @j @hi #buf -> @p #_)
+    = (trace "ok")
+    | return i (call &vswap i hi buf)
+.less(@pivot @i @j @hi #buf -> @p #_)
+    = (trace "less")
+    | jump &part pivot inc-i inc-j hi
+    | call &vswap i j buf
+
+(qsort [5 6 5 6 3 2] =?= [2 3 5 5 6 6])
+
+# blitzcore
+:silly_if_test(@c @x @y -> @_)
+    | return ? c (add x x)
+             | add y y
+
+( silly_if_test 1 3 7 =?= 6  )
+( silly_if_test 0 3 7 =?= 14 )
+
+# blitzcore
+:silly_if_test(@c @x @y -> @_)
+    = a b c (call &derp c x y)
+    | return (add a c)
+.derp(@c @x @y -> @_ @_ @_)
+    | return c c ? c (add x x)
+                 | add y y
+
+( silly_if_test 1 3 7 =?= 7  )
+( silly_if_test 0 3 7 =?= 14 )
+
+# blitzcore
+:another_if_test(@c @x @y -> @_)
+    ? c (return x)
+    | return y
+
+( another_if_test 0 3 4 =?= 4 )
+( another_if_test 1 3 4 =?= 3 )
+
+# blitzcore
+:nested_if_test(@c @x @y -> @_)
+    ? (eq c 0) (return x)
+    ? (eq c 1) (return y)
+    | return c
+
+( nested_if_test 0 3 4 =?= 3 )
+( nested_if_test 1 3 4 =?= 4 )
+( nested_if_test 2 3 4 =?= 2 )
+
+* # blitzcore :case0_test(@c @p @q @r @s @t -> @_)  (~ c)p
+* # blitzcore :case1_test(@c @p @q @r @s @t -> @_)  (~ c)(* p)q
+* # blitzcore :case2_test(@c @p @q @r @s @t -> @_)  (~ c)(* p)(* q)r
+* # blitzcore :case3_test(@c @p @q @r @s @t -> @_)  (~ c)(* p)(* q)(* r)s
+* # blitzcore :case4_test(@c @p @q @r @s @t -> @_)  (~ c)(* p)(* q)(* r)(* s)t
+* # blitzcore :case4_texpr(@c @p @q @r @s @t -> @_) (inc (~ c)(* p)(* q)(* r)(* s)t)
+* # blitzcore :case3_texpr(@c @p @q @r @s @t -> @_) (inc (~ c)(* p)(* q)(* r)s)
+* # blitzcore :case2_texpr(@c @p @q @r @s @t -> @_) (inc (~ c)(* p)(* q)r)
+* # blitzcore :case1_texpr(@c @p @q @r @s @t -> @_) (inc (~ c)(* p)q)
+* # blitzcore :case0_texpr(@c @p @q @r @s @t -> @_) (inc (~ c)p)
+
+(turn [0 1 2 3 4] x&(case0_test x 1 2 3 4 5)  =?= [1 1 1 1 1] )
+(turn [0 1 2 3 4] x&(case1_test x 1 2 3 4 5)  =?= [1 2 2 2 2] )
+(turn [0 1 2 3 4] x&(case2_test x 1 2 3 4 5)  =?= [1 2 3 3 3] )
+(turn [0 1 2 3 4] x&(case3_test x 1 2 3 4 5)  =?= [1 2 3 4 4] )
+(turn [0 1 2 3 4] x&(case4_test x 1 2 3 4 5)  =?= [1 2 3 4 5] )
+(turn [0 1 2 3 4] x&(case4_texpr x 1 2 3 4 5) =?= [2 3 4 5 6] )
+(turn [0 1 2 3 4] x&(case3_texpr x 1 2 3 4 5) =?= [2 3 4 5 5] )
+(turn [0 1 2 3 4] x&(case2_texpr x 1 2 3 4 5) =?= [2 3 4 4 4] )
+(turn [0 1 2 3 4] x&(case1_texpr x 1 2 3 4 5) =?= [2 3 3 3 3] )
+(turn [0 1 2 3 4] x&(case0_texpr x 1 2 3 4 5) =?= [2 2 2 2 2] )
+
+# blitzcore
+:qsort_(@row -> @_)
+    = n   | sz row
+    = buf | rep 0 0 n
+    = buf | _copy n 0 0 row buf
+    = buf | loop 0 dec-n buf
+    | buf
+:vswap(@i @j #buf -> #_)
+    = x   | ix i buf
+    = y   | ix j buf
+    = buf | _up j x buf
+    = buf | _up i y buf
+    buf
+.loop(@lo @hi #buf -> #_)
+    ? (ge lo hi) buf
+    = p buf | part (ix hi buf) lo lo hi buf
+    = buf   | loop lo dec-p buf
+    | loop inc-p hi buf
+.part(@pivot @i @j @hi #buf -> @p #_)
+    ? (ge j hi)
+        | return i (vswap i hi buf)
+    = vj (ix j buf)
+    ? (le vj pivot)
+        = buf (vswap i j buf)
+        | part pivot inc-i inc-j hi buf
+    | part pivot i inc-j hi buf
+
+(qsort_ [5 6 5 6 3 2] =?= [2 3 5 5 6 6])
+
+v=TY_VAL
+
+# blitzcore
+:catSz(@rows -> @_)
+    = n (sz rows)
+    | jump &loop 0 n 0 rows
+.loop(@acc @rem @i @rows -> @sz)
+    = acc rem i rows
+        | jnz &else rem acc rem i rows
+    | return acc
+.else(@acc @rem @i @rows -> @sz)
+    = acc | add acc sz-(ix i rows)
+    | jump &loop acc dec-rem inc-i rows
+
+( catSz [[3 4] [5 6 7]] =?= 5 )
+( catSz [[3 4] [5 6]]   =?= 4 )
+
+# blitzcore
+:vcat(@rows -> @_)
+    = outsz (apply 1 ^catSz rows)
+    | jump &loop sz-rows 0 0 rows (rep 0 0 outsz)
+.loop(@rem @i @off @rows #buf -> @_)
+    = _rem _i _off _rows rbuf
+        | jnz &else rem rem i off rows buf
+    | return rbuf
+.else(@rem @i @off @rows #buf -> @_)
+    = row   | ix i rows
+    = rowsz | sz row
+    | jump &loop (dec rem) (inc i) (add off rowsz) rows
+    | _copy rowsz 0 off row buf
+
+( vcat [[] [3 4 5 6]] =?= [3 4 5 6] )
+( vcat [[3] [4 5 6]]  =?= [3 4 5 6] )
+( vcat [[3 4] [5 6]]  =?= [3 4 5 6] )
+( vcat [[3 4 5] [6]]  =?= [3 4 5 6] )
+( vcat [[3 4 5 6] []] =?= [3 4 5 6] )
+
+anongate=(cat gate-0)
+
+( Blitz anongate [] []                          8 =?= "nobar" 8    )
+( Blitz anongate [] 1                           8 =?= "empty" 8    )
+;;Blitz anongate [] 511                         8 =?= "decode" 8   )
+; Blitz anongate [] (Blitz 1)                   8 =?= "nobar" 8    )
+( Blitz anongate [] (# blitz ret)               8 =?= 8            )
+; Blitz anongate [] (# blitz swap)              8 =?= "roll-has" 8 )
+( Blitz anongate [] (# blitz dup swap)          8 =?= "oob" 8      )
+
+; Blitz anongate [] (# blitz dup swap ret)      8 =?= "resize" 8   )
+    ; ^ TODO: Write a fake Try impl, jet it, and catch errors.
+
+( Blitz anongate [] (# blitz dup swap drop ret) 8 =?= 8            )
+( Blitz anongate [] (# blitz dup swap nip ret)  8 =?= 8            )
+
+; ') TODO: update the jet matching logic for the new ABI.
+; ') TODO: store the table of values somewhere within the matched pin's memory.
+; ')
+; ')     I guess store the Blitz[0 vals code sig] closure and fetch
+; ')     the code sequence and values from that at execution time.
+; ')
+; ') TODO: Write tests for w8, k8, w16, etc.
+; ') TODO: Write tests that include constant values.
+
+# blitzcore
+:isolate(@x -> @x)
+    = x n a t
+        | goVal x (rep 0 0 0) (rep 0 0 0) (rep 0 0 0)
+    x
+.goVal(@x #n #a #t -> @key #n #a #t)
+    ? (isnat x)
+        | return 0 n a t
+    ? (ispin x)
+        | return 0 n a t
+    ? (islaw x)
+        | return 0 n a t
+    | return 0 n a t
+
+( isolate 3 =?= 0 )
+
+# blitzcore
+:tabSearch(@key @itab -> @found_ix_value)
+    = n                  | sz itab
+    = tab                | rep 0 n ++n
+    = tab                | _copy n 0 1 itab tab
+    = found ix value tab | tableSearch key tab
+    | return             | apply 3 0 found ix value
+.tableSearch(@key #tab -> @found @ix @value #tab)
+    = size | ix 0 tab
+    | tableSearchLoop key 0 size>>1 tab
+.tableSearchLoop(@key @low @end #tab -> @found @index @value #tab)
+    = mid           | (low+end >> 1)
+    = i             | mid<<1
+    ? (ge low end)  | return 0 i 0 tab
+    = this          | ix ++i tab
+    ~ cmp this key
+    * tableSearchLoop key ++mid end tab
+    * = v | ix 2+i tab
+      | return 1 i v tab
+    | tableSearchLoop key low mid tab
+
+( tabSearch 0 [0 10  5 15  9 19] =?= [1 0 10] )
+( tabSearch 5 [0 10  5 15  9 19] =?= [1 2 15] )
+( tabSearch 9 [0 10  5 15  9 19] =?= [1 4 19] )
+( tabSearch 3 [0 10  5 15  9 19] =?= [0 2 0] )
+
+# blitzcore
+:intern(@val -> @tables)
+    = n       | vnew 8 ; This is a table
+    = a       | vnew 8 ; This is a table
+    = t       | vnew 8
+    = t       | vpush2 ^Pin 0 t
+    ;         | trace (vshow "fdsa" t)
+    ;         | trace (vshow "before_goVal" t)
+    = _ n a t | goVal val n a t
+    ;         | trace (vshow "after_goVal" t)
+    = n       | vfreeze n
+    = a       | vfreeze a
+    = t       | vfreeze t
+    | apply 3 0 n a t
+.vshow(@tag ^vec -> @_) ; TODO: support empty return (syntax issue?)
+    = n (sz vec)
+    | _copy n 0 0 vec (rep tag 0 n)
+.vget(@ix ^vec -> @val)
+    | ix ++ix vec
+.newentry(@item #vec -> #vec)
+    | vpush 1 | vpush item vec
+.vpush(@item #vec -> #vec)
+    = width     | sz vec
+    = capacity  | --width
+    = used      | ix 0 vec
+    ? used<capacity
+        = used ++used
+        | _up 0 used | _up used item | vec
+    | vpush item vgrow-vec
+.vsize(^vec -> @n)
+    | ix 0 vec
+.vnew(@capacity -> #buf)
+    | rep 0 0 ++capacity ; ') The first slot is the "used" variable.
+.vfreeze(#vec -> @vec)
+    = used | ix 0 vec
+    | _copy used 1 0 vec | rep 0 0 used
+.bumpref(@ix #tab -> #tab)
+    ; (trace (apply 1 "bumpref" ix)) ; (apply 2 "bumpref" ix))
+    = ix  | (++ix << 1) ; ') +1 for "used" field, +1 to get second slot
+    = val | ix ix tab
+    | _up ix ++val tab
+.pack(@f @x -> @fx)
+    | x+(f << 32)
+.vgrow(#vec -> #vec)
+    = width  | sz vec
+    | _copy width 0 0 vec
+    | rep 0 0 ++(--width << 1)
+.vpush2(@x @y #row -> #row)
+    = width     | sz row
+    = cap       | --width
+    = size      | ix 0 row
+    ? (cap > size+2)
+        = size | ++size
+        = row  | _up size x row
+        = size | ++size
+        = row  | _up size y row
+        = row  | _up 0 size row
+        | row
+    | vpush2 x y vgrow-row
+.vcap(#row -> @cap #row)
+    = width     | sz row
+    | return --width row
+.vins2(@i @x @y #row -> #row)
+    = siz     | vsize row
+    = cap row | vcap row
+    ; (trace (apply 8 0 "x" x "y" y "siz" siz "cap" cap))
+    ? (siz+2 > cap) | vins2 i x y vgrow-row
+    ; row | vshow "before" row
+    = row | _copyIn (sub siz i) i+1 i+3 row
+    = row | _up i+1 x row
+    = row | _up i+2 y row
+    = row | _up 0 siz+2 row
+    ; row | vshow "after" row
+    row
+.goPair(@f @x #n #a #t -> @key #n #a #t)
+    ; (trace (apply 2 "goPair.input" f x))
+    = fx             | pack f x
+    = found ix res a | tableSearch fx a
+    ; (trace (apply 3 "goPair.result" found ix res))
+    ? found          | return res n a (bumpref res t)
+    = key a t        | pushnew ix fx (apply 1 f x) a t
+    | return key n a t
+.pushnew(@ixPos @ixKey @tabEntry #ixTab #tab -> @key #ixTab #tab)
+    = tabWid     | vsize tab
+    = tabKey     | tabWid>>1
+    = tab        | vpush2 tabEntry 1 tab
+    = ixTab      | vins2 ixPos ixKey tabKey ixTab
+    | return tabKey ixTab tab
+.goPin(@item #n #a #t -> @key #n #a #t)
+    = t         | bumpref 0 t
+    ? nil-item  | return 0 n a t
+    = i n a t   | goVal item n a t
+    | goPair 0 i n a t
+.goVal(@x #n #a #t -> @key #n #a #t)
+    ; (trace (apply 2 0 "goVal" x))
+    ; n | vshow "goVal.n" n
+    ; a | vshow "goVal.a" a
+    ; t | vshow "goVal.t" t
+    ~ type x
+    * ;NAT
+        = found ix res n (tableSearch x n)
+        ; (trace (apply 3 "nat.res" found ix res))
+        ? found   | return res n a (bumpref res t)
+        = key n t | pushnew ix x x n t
+        | return key n a t
+    * ;PIN
+        | goPin (unpin x) n a t
+    * ;LAW
+        = o    n a t | goPin 1         n a t
+        = _n   n a t | goVal (name x)  n a t
+        = on   n a t | goPair o _n     n a t
+        = _a   n a t | goVal (arity x) n a t
+        = ona  n a t | goPair on _a    n a t
+        = _b   n a t | goVal (body x)  n a t
+        = onab n a t | goPair ona _b   n a t
+        | return onab n a t
+    | ;APP
+        = _hd n a t | goVal hd-x n a t
+        | goApp x sz-x _hd 0 n a t
+.goApp(@closure @params @acc @i #n #a #t -> @key #n #a #t)
+    ? (ge i params)
+        | return acc n a t
+    = item n a t | goVal (ix i closure) n a t
+    = acc  n a t | goPair acc item      n a t
+    | goApp closure params acc ++i n a t
+.tableSearch(@key #tab -> @found @ix @value #tab)
+    = size     | ix 0 tab
+    ; tab | vshow "tab" tab
+    ; trace-(apply 1 "size" size)
+    | tableSearchLoop key 0 size>>1 tab
+.tableSearchLoop(@key @low @end #tab -> @found @index @value #tab)
+    ;              | trace (apply 3 "tsloop" key low end)
+    = mid          | (low+end >> 1)
+    = i            | mid<<1
+    ? (ge low end) | return 0 i 0 tab
+    = this         | ix ++i tab
+    ~ cmp this key
+    * tableSearchLoop key ++mid end tab
+    * (= v (ix 2+i tab))(return 1 i v tab)
+    | tableSearchLoop key low mid tab
+
+( intern 3   =?= [[3 1] []           [##0 0  3 1]        ])
+( intern ##2 =?= [[2 1] [pack-0-1 2] [##0 1  2 1  0-1 1] ])
+( intern 0-0 =?= [[0 1] [pack-1-1 2] [##0 0  0 2  1-1 1] ])
+( intern ##0 =?= [[]    []           [##0 1]             ])
+
+=?= intern-(0-1 0-1)
+  | map cat
+ ++ 0 [0 1] [1 2]
+ ++ 0 (pack 1 2, 3) (pack 3 3, 4)
+ ++ 0 (##0, 0) (0, 2) (1, 2) (1 2, 2) (3 3, 1)
+
+=?= intern-(0-0 0-0)
+  | map cat
+ ++ 0 [0 1]
+ ++ 0 (pack 1 1, 2) (pack 2 2, 3)
+ ++ 0 (##0, 0) (0, 4) (1 1, 2) (2 2, 1)
+
+=?= intern-(0 0 0)
+  | map cat
+ ++ 0 [0 1]
+ ++ 0 (pack 1 1, 2) (pack 2 1, 3)
+ ++ 0 (##0, 0) (0, 3) (1 1, 1) (2 1, 1)
+
+=?= intern-(0 0 0 0)
+  | map cat
+ ++ 0 [0 1]
+ ++ 0 (pack 1 1, 2) (pack 2 1, 3) (pack 3 1, 4)
+ ++ 0 (##0, 0) (0, 4) (1 1, 1) (2 1, 1) (3 1, 1)
+
+=?= intern-Law ; (<0> 1)
+  | map cat
+ ++ 0 [1 1]
+ ++ 0 (pack 0 1, 2)
+ ++ 0 (##0, 1) (1, 1) (0 1, 1)
+
+=?= intern-(Law 1 1 1) ; (<0> 1 1 1 1)
+  | map cat            ; ((((##0 1) 1 1) 1) 1)
+ ++ 0 [1 1]
+ ++ 0 (pack 0 1, 2) (pack 2 1, 3) (pack 3 1, 4) (pack 4 1, 5)
+ ++ 0 (##0, 1) (1, 4) (0 1, 1) (2 1, 1) (3 1, 1) (4 1, 1)
+
+=?= intern-(x&x) ; (<0> 1 0 1 1)
+  | map cat
+ ++ 0 [0 3] [1 1]
+ ++ 0 (pack 0 1, 2) (pack 2 3, 4) (pack 4 1, 5) (pack 5 1, 6)
+ ++ 0 (##0, 1) (1, 3) (0 1, 1) (0, 1) (2 3, 1) (4 1, 1) (5 1, 1)
+
+(Id x)=x
+
+=?= intern-Id ; (##0 (##0 1 "Id" 1 1))
+  | map cat
+ ++ 0 [1 1] ["Id" 3]
+ ++ 0 (pack 0 1, 2) (pack 0 6, 7) (pack 2 3, 4) (pack 4 1, 5) (pack 5 1, 6)
+ ++ 0 (##0, 2) (1, 3) (0 1, 1) ("Id", 1) (2 3, 1) (4 1, 1) (5 1, 1) (0 6, 1)
+
+= (rehydrate table)
+@@ = result
+       : i < gen (Rsh Sz-table 1)
+       @ e (Ix (Lsh i 1) table)
+       @ f Hd-e
+       @ x fst-e
+       | Ifz IsApp-e e
+       | (Ix f result) (Ix x result)
+ result
+
+=?= ++ ##0
+    ++ 1
+    ++ ##1
+    ++ "Id"
+    ++ (##1 "Id")
+    ++ (##1 "Id" 1)
+    ++ (Id x ? x)
+    ++ (Id x ?? x)
+  | rehydrate | Last | intern Id
+
+(lsum xs)=(lfoldl Add 0 xs)
+
+= (roundtrip value)
+@ [atoms cells table] (intern value)
+@ nodeCount | lsum | lmap lix-1 | lgroupsOf 2 | stream table
+@ [atoms cells table] (intern value)
+| Trace [value "has" nodeCount "nodes" (Rsh Sz-table 1) "are" "unique"]
+| Last rehydrate-table
+
+; '] TODO: why does the built-in compare jet of the native runtime fail here,
+; '] but planEql is okay?
+
+rid=0
+( Id =?= roundtrip Id                            )
+rfr=0
+( 1  =?= planEql Force (roundtrip Force)         )
+rca=0
+( 1  =?= planEql Init (roundtrip Init)            )
+;rad=0
+;( 1  =?= planEql Add (roundtrip Add)             )
+;rcmp=0
+;( 1  =?= planEql Compare (roundtrip Compare)     )
+;rln=0
+;( 1  =?= planEql Row (roundtrip Row)             )
+;roundSearch=0
+;( 1  =?= planEql searchTab (roundtrip searchTab) )
+roundok=0
+
+; = (renderTable table)
+; ^ row | lmapi _ | lgroupsOf 2 | stream table
+; & (i [x [y []]])
+; | (strWeld "#" showNat-(Lsh i 1), "node" x, "refcount" y)
+
+# blitzcore
+:shatter(@table -> @keyset)
+    = nt         | sz table
+    = logicalSz  | nt>>1
+    = seen       | rep 0 0 logicalSz ; visited
+    = fs         | rep 0 0 logicalSz ; frags
+    = nf         | 0                 ; frags
+    ;            | trace (apply 1 ^renderTable table)
+    = seen fs nf | loop table 0 --logicalSz seen fs nf
+    | _copy nf 0 0 fs
+    | rep 0 0 nf
+.bump(@i @itemRefs @upRefs #fs @nf -> #fs @nf)
+    ? (eq itemRefs upRefs) | return fs nf
+    ; (trace (apply 4 "bump" i itemRefs upRefs nf))
+    | return (_up nf i fs) ++nf
+.loop(@table @upRefs @i #seen #fs @nf -> #seen #fs @nf)
+    = tabIx            | i<<1
+    = item             | ix tabIx   table
+    = itemRefs         | ix ++tabIx table
+    = isSeen           | ix i seen
+    ;                  | trace
+    ;                  | apply 5 "loop" i item (apply 1 "nf" nf)
+    ;                                   (apply 1 "seen" isSeen)
+    ;                                   (apply 2 "refs" upRefs itemRefs)
+    ? isSeen           | return seen fs nf
+    = seen             | _up i 1 seen
+    ? nil-(isapp item) | return seen fs nf
+    = seen fs nf       | loop table itemRefs (hd item)   seen fs nf
+    = seen fs nf       | loop table itemRefs (ix 0 item) seen fs nf
+    = fs nf            | bump i itemRefs upRefs fs nf
+    | return seen fs nf
+
+( shatter (Ix 2 intern-(0-0 0-0)) =?= [2 3]                    )
+( shatter (Ix 2 intern-Force)     =?= [2 10 17]                )
+( shatter (Ix 2 intern-Add)       =?= [2 12 14 15 17 28 36 74] )
+
+newSzLimits=(map Lsh-1 [8 16 32 64])
+oldSzLimits=(map Lsh-1 [8 64])
+
+= (countAtomsLoop !n sizes@[size moreSzs] atoms@[atom moreAtoms])
+| Ifz sizes (llen atoms, [])
+| If (And atoms (Lt atom size))
+    | countAtomsLoop Inc-n sizes moreAtoms
+| else
+    | (n, countAtomsLoop 0 moreSzs atoms)
+
+= (atomSzs limits atomsTable)
+| array | countAtomsLoop 0 stream-limits stream-atomsTable
+
+( atomSzs newSzLimits []                                    =?= [0 0 0 0 0] )
+( atomSzs newSzLimits [0 255 256]                           =?= [2 1 0 0 0] )
+( atomSzs newSzLimits [65535 65536]                         =?= [0 1 1 0 0] )
+( atomSzs newSzLimits ["fdsa" "absdf"]                      =?= [0 0 1 1 0] )
+( atomSzs newSzLimits ["fdsafdsa" "afdsafdsa" "0123456789"] =?= [0 0 0 1 2] )
+
+(wordSz x = Rsh (Add 63 Bits-x) 6)
+
+( wordSz 0           =?= 0 )
+( wordSz 1           =?= 1 )
+( wordSz "fdsafdsa"  =?= 1 )
+( wordSz "fdsafdsa_" =?= 2 )
+
+= (internedAtomSizes [atomIx cellIx itab])
+@ atoms
+    | array | lmap fst | lgroupsOf 2 | stream atomIx
+@ result@[bytes words bigs]
+    | atomSzs oldSzLimits atoms
+@ bigSizes
+    @ numSmall | sum (take 2 result)
+    | array | lmap wordSz | ldrop numSmall | stream atoms
+| (bigSizes, result)
+
+( internedAtomSizes intern-Force =?= [],[2 1 0] ) ; 0, 1, "Force"
+( internedAtomSizes intern-times =?= [],[5 1 0] ) ; 0, 1, 2, 3, "times"
+( internedAtomSizes intern-Add   =?= [],[5 3 0] ) ; adds "Inc" and "Nat"
+
+=?=   | internedAtomSizes
+      | intern
+      | Bex-64
+        "fdsapqrsfdsapqrs"
+        "Hallo there, what is up?"
+        "Hallo there, what is good?"
+ ++ [2 2 3 4]
+ ++ [0 0 4]
+
+(setHas key set)=(Test 0 | searchSet key set)
+
+( map x&(setHas x [3 5 7]) [2 3 4 5 6 7 8] =?= [0 1 0 1 0 1 0] )
+
+= (countLeaves tab frags i)
+@ frag (Ix i frags)
+@ n0   (Ix (Lsh frag 1) tab)
+@ f0   (Hd n0)
+@ x0   (fst n0)
+; frag f0 x0 ; Add (_ f0) (_ x0)
+^ Add (_ f0) (_ x0)
+? (go nix)
+@ n (Ix (Lsh nix 1) tab)
+| Ifz IsApp-n 1 ; "nat"-n ;1
+| If (setHas nix frags) 1; "frag"-nix ;1
+@ f Hd-n
+@ x fst-n
+; nix go-f go-x
+| Add go-f go-x
+
+= (fragSizes nRef nLeafPerFrag)
+^ mapi _ nLeafPerFrag
+& (i leaves)
+@ nRef   | Add i nRef ; each fragment adds a new thing to the scope.
+@ maxRef | Dec nRef
+@ refSz  | Bits maxRef
+| Sub (Mul leaves (Add 2 refSz)) 2
+
+= (**mul64 x) | Lsh x 6
+
+= (seedSize nBytes nWords nBigs bigSizes frags tab)
+@ nRef | Add (Add nBytes nWords) Inc-nBigs
+@ nLef | gen Sz-frags countLeaves-tab-frags
+| Trace ++ 320
+        ++ (nBigs, mul64 nBigs)
+        ++ (bigSizes, mul64 sum-bigSizes)
+        ++ (nWords, mul64 nWords)
+        ++ (nBytes, mul8 nBytes)
+        ++ fragSizes nRef nLef
+        ++ 1
+@ size | Add 320                                   ; ') header is 5 words
+       | Add (mul64 nBigs)                         ; ') bignat sizes
+       | Add (mul64 sum-bigSizes)                  ; ') bignat data
+       | Add (mul64 nWords)                        ; ') word data
+       | Add (mul8 nBytes)                         ; ') byte data
+       | Add (And frags sum-(fragSizes nRef nLef)) ; ') fragment sizes
+       | 1                                         ; ') terminal bit
+| size
+
+= (testSeedSize value)
+@ jail@[atoms cells tab]          | intern value
+@ [!bigSzs [!bytes !words !bigs]] | internedAtomSizes jail
+@ frags                           | shatter tab
+| seedSize bytes words bigs bigSzs frags tab
+
+(SaveSeed x = x) ; ') This abuses a hack in the Haskell runtime for
+                 ; ') for testing purposes.  This jet matches based on
+                 ; ') the name
+
+; (actualSeedSize v)=(Bits SaveSeed-v)
+
+(identity x)=x
+
+; testSeedSize ##0         =?= actualSeedSize ##0         )
+; testSeedSize ##1         =?= actualSeedSize ##1         )
+; testSeedSize 0           =?= actualSeedSize 0           )
+; testSeedSize x&0         =?= actualSeedSize x&0         )
+; testSeedSize x&x         =?= actualSeedSize x&x         )
+; testSeedSize times       =?= actualSeedSize times       )
+; testSeedSize Add         =?= actualSeedSize Add         )
+; testSeedSize Mul         =?= actualSeedSize Mul         )
+; testSeedSize identity    =?= actualSeedSize identity    )
+; testSeedSize "identity?" =?= actualSeedSize "identity!" )
+; testSeedSize search      =?= actualSeedSize search      )
+; testSeedSize bstIns      =?= actualSeedSize bstIns      )
+
+;;;; ssz0=0
+;;;; ( testSeedSize ##0         =?= 321                        )
+;;;; ssz1=0
+;;;; ( testSeedSize ##1         =?= 333                        )
+;;;; ssz2=0
+;;;; ( testSeedSize 0           =?= 329                        )
+;;;; ssz3=0
+;;;; ( testSeedSize x&0         =?= 359                        )
+;;;; ssz4=0
+;;;; ( testSeedSize x&x         =?= 355                        )
+;;;; ssz5=0
+;;;; ( testSeedSize times       =?= 655                        )
+;;;; ssz6=0
+;;;; ( testSeedSize Add         =?= 981                        )
+; ssz7=0
+; testSeedSize Mul         =?= 1193                       )
+; ssz8=0
+; testSeedSize identity    =?= 415                        )
+; ssz9=0
+; testSeedSize "identity?" =?= 513                        )
+; ssz10=0
+; ( testSeedSize search      =?= 4355                       )
+; ssz11=0
+; ( testSeedSize bstIns      =?= 4511                       )
+
+= (barToNat bar)
+| Clear (Dec Bits-bar) bar
+
+(barToNat 256   =?= 0)
+(barToNat 257   =?= 1)
+(barToNat 258   =?= 2)
+(barToNat 65536 =?= 0)
+(barToNat 65537 =?= 1)
+(barToNat 65538 =?= 2)
+
+# blitzcore
+:writeSeed(@seedSz @nBytes @nWords @nBigs @bigSzs @atoms @table @frags -> @nat)
+    = nFrags           | sz frags
+    = nHole            | tobit (ix 1 table)
+    = seedSzInWords    | (seedSz+63 >> 3)
+    = buf              | bex seedSzInWords<<3 ; ') word array
+    ;                  | trace  (apply 1 "bytes" (seedSz+63 >> 3))
+    = buf              | _write64 0  nHole  buf      ; ') num holes
+    ;                  | trace (apply 1 "nHole" nHole)
+    = buf              | _write64 8  nBigs  buf      ; ') num bignats
+    ;                  | trace (apply 1 "nBigs" nBigs)
+    = buf              | _write64 16 nWords buf      ; ') num word64
+    ;                  | trace (apply 1 "nWords" nWords)
+    = buf              | _write64 24 nBytes buf      ; ') num word8
+    ;                  | trace (apply 1 "nBytes" nBytes)
+    = buf              | _write64 32 nFrags buf      ; ') num fragments
+    ;                  | trace (apply 1 "nFrags" nFrags)
+    = bix buf          | writeSizes bigSzs       nBigs  0     40  buf
+    = aix bix buf      | writeBigs  bigSzs atoms nBigs  0 0   bix buf
+    = aix bix buf      | writeWords        atoms nWords 0 aix bix buf
+    = aix bix buf      | writeBytes        atoms nBytes 0 aix bix buf
+    = acc used bix buf | getOverhang bix buf
+    = acc used bix buf | writeFrags nHole table atoms frags sz-frags 0 acc used bix buf
+    = acc used bix buf | writeBit1 acc used bix buf ; ') Size marker
+    | decap (used ? _write64 bix acc buf ? buf)
+.decap(#bar -> #nat)
+    = n (bits bar)
+    | _clear --n bar
+.writeRef(@refsz @ref @acc @used @bix #buf -> @acc @used @bix #buf)
+    = bitwidth | ++refsz
+    = bits     | ref<<1 ; leading 0 marks a leaf
+    = acc      | add acc (bits << used)
+    = used     | used+bitwidth
+    ? used<64  | return acc used bix buf
+    | return acc>>64 (sub used 64) bix+8 (_write64 bix acc buf)
+.writeNode(@nHole @table @atoms @frags @refsz @x @acc @used @bix #buf -> @acc @used @bix #buf)
+    = res | apply 2 ^searchSet x frags
+    ? (test 0 res)
+        = fragIx | res>>1
+        = ref    | ((nHole + sz atoms) + fragIx)
+        | writeRef refsz ref acc used bix buf
+    = entry (ix x<<1 table)
+    ; trace-(apply 1 "entry" entry)
+    ? ispin-entry
+        | writeRef refsz 0 acc used bix buf
+    ? isapp-entry
+        | writeCell nHole table atoms frags refsz entry acc used bix buf
+    ; trace-(apply 2 0 (apply 1 "entry" entry) (apply 1 "atoms" atoms))
+    = res   | apply 2 ^searchSet entry atoms
+    = aix   | res>>1
+    = nAtom | sz atoms
+    = ref   | nHole+(sub nAtom ++aix)
+    ; trace-(apply 3 0 (apply 1 "res" res) (apply 1 "aix" aix) (apply 1 "ref" ref))
+    | writeRef refsz ref acc used bix buf
+.writeCell(@nHole @table @atoms @frags @refsz @entry @acc @used @bix #buf -> @acc @used @bix #buf)
+    = f (hd entry)
+    = x (ix 0 entry)
+    ; trace-(apply 2 0 (apply 1 "f" f) (apply 1 "x" x))
+    = acc used bix buf | writeBit1 acc used bix buf
+    = acc used bix buf | writeNode nHole table atoms frags refsz f acc used bix buf
+    = acc used bix buf | writeNode nHole table atoms frags refsz x acc used bix buf
+    | return acc used bix buf
+.writeFrags(@nHole @table @atoms @frags @n @i @acc @used @bix #buf -> @acc @used @bix #buf)
+    ? (ge i n) | return acc used bix buf
+    = frag   | ix i frags
+    = node   | ix frag<<1 table
+    = nAtom  | sz atoms
+    = maxref | --((nAtom+i) + nHole)
+    = refsz  | bits maxref
+    ; (trace (apply 1 "nHole"  nHole))
+    ; (trace (apply 1 "atoms"  atoms))
+    ; (trace (apply 1 "nAtoms" nAtom))
+    ; (trace (apply 1 "i" i))
+    ; (trace (apply 1 "maxref" maxref))
+    ; (trace (apply 1 "refsz" refsz))
+    = acc used bix buf | writeNode nHole table atoms frags refsz hd-node   acc used bix buf
+    = acc used bix buf | writeNode nHole table atoms frags refsz ix-0-node acc used bix buf
+    | writeFrags nHole table atoms frags n ++i acc used bix buf
+.getOverhang(@bix #buf -> @acc @used @bix #buf)
+    = overhang  | trunc 3 bix           ;;  low 3-bits == bix%8
+    = bix       | sub bix overhang      ;;  slide back
+    = acc       | read64 bix buf        ;;  get last words
+    | return acc (overhang<<3) bix buf
+.writeBit1(@acc @used @bix #buf -> @acc @used @bix #buf)
+    = acc | set used acc
+    ? (ne used 63) | return acc ++used bix buf
+    | return 0 0 bix+8 (_write64 bix acc buf)
+.writeBit0(@acc @used @bix #buf -> @acc @used @bix #buf)
+    ? (ne used 63) | return acc ++used bix buf
+    | return 0 0 bix+8 (_write64 bix acc buf)
+.writeSizes(@sizes @n @i @bix #buf -> @bix #buf)
+    = aix bix buf | writeWords sizes n 0 0 bix buf
+    | return bix buf
+ .writeBigs(@sizes @atoms @n @i @aix @bix #buf -> @aix @bix #buf)
+    ? (ge i n) | return aix bix buf
+    = byteSz   | (ix i sizes << 3)
+    | writeBigs sizes atoms n ++i ++aix bix+byteSz
+    | _splice byteSz 0 bix (getAtom aix atoms) buf
+.writeWords(@atoms @n @i @aix @bix #buf -> @aix @bix #buf)
+    ? (ge i n) | return aix bix buf
+    ; trace-(apply 4 "writeWords" n i aix bix)
+    | writeWords atoms n ++i ++aix bix+8
+    | _write64 bix (getAtom aix atoms) buf
+.writeBytes(@atoms @n @i @aix @bix #buf -> @aix @bix #buf)
+    ; trace-(apply 4 "writeBytes" n i aix bix)
+    ? (ge i n) | return aix bix buf
+    | writeBytes atoms n ++i ++aix bix+1
+    | _write8 bix (getAtom aix atoms) buf
+.getAtom(@aix @atoms -> @atom)
+    | ix (sub sz-atoms ++aix) atoms
+
+= (dictKeys d)
+| gen (Rsh Sz-d 1) i&(Ix (Lsh i 1) d)
+
+( dictKeys [1 2 3 4] =?= [1 3] )
+
+= (seed value)
+@ jail@[atomTable cells tab]      | intern value
+| Trace "jail"-jail
+@ atoms                           | dictKeys atomTable
+| Trace "atoms"-atoms
+@ [!bigSzs [!bytes !words !bigs]] | internedAtomSizes jail
+| Trace "bigSzs"-bigSzs
+@ frags                           | shatter tab
+| Trace "frags"-frags
+@ seedSz                          | seedSize bytes words bigs bigSzs frags tab
+| Trace "seedSz"-seedSz
+| writeSeed seedSz bytes words bigs bigSzs atoms tab frags
+
+= (bytes n)
+^ array | lmap array | lgroupsOf 8 (_ n)
+? (go n)
+| n&&(Word8 n, go (Rsh n 8))
+
+foobar="foobar foobar foobar foobar foobar"
+
+derp=(showNat "E")
+
+savePin=0
+=?= seed-(##0)
+  2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936577
+
+save0=0
+=?= seed-0
+  546812681195752981093125556779405341338298634825038495787206487391911457466260083161322758290276352
+
+save1=0
+=?= seed-1
+  548948668231673891175520578485574893452901339347395148557153528999733677192040723711345720377212928
+
+saveword=0
+( seed "foobar"     =?= 39402274823653897332376711917308696659692373880904651308935194464496191059884223715654792127424394787667218771476480 )
+
+savebig=0
+( seed "foobarzaz"  =?= 13407807929942597188525111115756555738565795924686096728740877504051420061927171788197415308413730028176831676431659924816779848677162106869576575544721408 )
+
+savehuge=0
+( seed foobar       =?= 84162174424774109710433879837043336282610764897356374820298769444103543278916943112065099830379389641936785717250102406909064897082990504786608528284881386666141534011146109483561931967109426810241370896790978560 )
+
+savepair=0
+( seed "hi","hello" =?= 198165309791954262640430866717790087072079059504002187524801244811078411080715725248748580230065773754245031915164581214330496949458787368960 )
+
+savelaw=0
+( seed ##1          =?= 13125640335733992456317524176501135060429049137968375345913187785841629063152491739830554401389412353 )
+
+savedups=0
+( seed (0-0 0-0)    =?= 56868518844358310033685289489236630131573258622295276109566506142417532467978269021334802892893192192 )
+
+saveforce=0
+=?= seed-Force
+  641195622995618305616696677251571782290006698129722018698016240376496364365353915160307244896820073987938413213044855476664794837505609788555265
+
+saveadd=0
+=?= seed-Add
+  14194935086915700516673787727990879210769968271075710881099896024817777456788473198275875749124529822002618483135147287068877208152674496851874866223347166879590731246505137522016685502914764190740110835101522203892835654070210621481271331160981480343840420762957165338102209749030138433146716161
+
+savemul=0
+=?= seed-Mul
+  82502370194042177388067401089918535475259345390784444799061397455633878636114882183341402959905136378924455453714161505676269357158580835370381329002114348886940070231372314003957307460866142470758577932270509538255076446351789565908834000344451818273691762268001070803152292439622918007148295133285351157198817543518856967847170737120448631767112877139296257
+
+saveSearch=0
+=?= seed-search
+  9666007501968858277466750217834003852330280196095310269238257653159168939336700073752782451641867494169534806073347463233025497472010201688905128132071737897723853110322397248577646393578894865399256508976972675455174693988019338171963609212436773335271960863463432587889068562500950298041347677059424667176790888699817659475210394098960474414728810653080878444420050875901655105925717585570588754862463792117639092978156329720356218810762074119425240681063046385063244734391499302973595121669121256102878258078942949746872410514340445343227966751067569324735828304720899671953914938437594022732659861970047978815576573796940923345322080518476213368121581264013863106327018310918816719689288716320329778833910663046087107153920379942106343843841978127961375173288668922238164604938045571909132069882756714277238229794731832997015548825529242163675782511388067124407212043956087637398235477532566115181941414161626920384879978911224648203458560561955911739536800316268787972781273525577471771115508931641348768902281418241986446736309437170466566929500004115418915693897613849648462467078548576245556658627725398542085248952119102537125788690263029927886254891749786530968691021098781996462608159142704810026953043581645534577677963263252954104177699599296260689425134145172724051829450045651049011308743110356211590160238007196658356482094903814715007885022061011178077954483564380487404460897048726431061706934419346514221623854724979722827587253559916784236727260216920295685005720588124161
+
+saveTab=0
+=?= seed-searchTab
+  495664822480414360721005323123479935023710090047617544847069225676697667764693979761955082289834096680416507739573532294925971882161039309567271364865317522678129674400793973138460746125759759943595464364279210648336258983826553063031342965460274077936210999513939190276466730223358903399173912872757588251497376343314737872969195822621010432316605506826025309639590656610387201931945240631107324888274171444129685178222390399656708203022246282018321162483563428861720828220929929977365237371392712187210021781320031838292898755076414555753089762084140907629317705633691364868405160088119887157389481515715245691946655540865609814058465847556802210990562825741012885458806948841460792886851452899039830184482352703805286639754485431895718925941534823177745062200807720293427957996272492559411807276826579468581185569223522015967943780647242041207756450301231416879434478412451558589524935782403137842846651382369522224838957757705315587214435400653330703916200144581336173912306752186128131877335512903609399048395851708445732843387250581148215385659467105815470217315387283192818455196593424282582959712685623495495651217770369373959466756273750815151949070336693630685001444350453671198552101827758706695225312078137536783865603547785851320771388229609064887589464448882381878674281673620661703601124539123430342880552041222535122936012917393021055820358313360445555837037142172742336356771834049617758893997529532634500726614433080472380420040632777117589020832906078733018430208968922234743304319900709565112683077987089013184096894448598990114356062909649092036887764682593193323899408829431457457324026757121
+
+saveOkay=0
+
+; seed ##0          =?= SaveSeed ##0          )
+; seed 1            =?= SaveSeed 1            )
+; seed 0            =?= SaveSeed 0            )
+; seed "foobar"     =?= SaveSeed "foobar"     )
+; seed "foobarzaz"  =?= SaveSeed "foobarzaz"  )
+; seed foobar       =?= SaveSeed foobar       )
+; seed "hi","hello" =?= SaveSeed "hi","hello" )
+; seed ##1          =?= SaveSeed ##1          )
+; seed (0-0 0-0)    =?= SaveSeed (0-0 0-0)    )
+; seed Force        =?= SaveSeed Force        )
+; seed Add          =?= SaveSeed Add          )
+; seed Mul          =?= SaveSeed Mul          )
+; seed search       =?= SaveSeed search       )
+; seed searchTab    =?= SaveSeed searchTab    )

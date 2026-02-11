@@ -1,0 +1,14 @@
+cords
+0P
+    1P "eat" A 1 A 0 A
+A
+\?
+	eval
+\?
+	1 app eval
+\?
+	1 app 2 app 3 app
+\?
+\?
+	1 app eval
+\?

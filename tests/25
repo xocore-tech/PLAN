@@ -1,0 +1,39 @@
+cords
+
+    ; pin case
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 0P 3 A A _ eval .
+
+\   ; law case
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 1P 2 A 3 A 4 A
+memcheck A _ eval .
+
+\   ; app case (pair)
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 3 4 A
+memcheck A _ eval .
+
+\   ; app case (triple, nf)
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck (3 4 A 5 A force)
+memcheck A _ eval .
+
+\   ; app case (triple, whnf)
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck (3 4 A 5 A eval)
+memcheck A _ eval .
+
+\   ; app case (triple, lazy)
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 3 4 A 5 A
+memcheck A _ eval .
+
+\   ; nat case
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 2P 2P 5 A A A  _ eval .
+
+\   ; zero case
+memcheck 3P "pin" A "law" A "app" A "zero" A "oneplus" A
+memcheck 0 A _ eval .
+memcheck

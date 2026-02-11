@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -e
+
+includefile () {
+	local file="wisp/$1.lisp"
+
+	test -f "$file"
+
+	local before=$(
+		cat $file |
+			head -n1 |
+			egrep '^.require "[a-zA-Z0-9]+".$' |
+			sed 's#[^"]*"\([a-zA-Z0-9]*\)".*#\1#'
+	)
+
+	if test -n "$before"
+	then
+		includefile "$before"
+		echo
+		echo
+		tail -n +2 "$file"
+	else
+		cat "$file"
+	fi
+
+}
+
+test "$#" -eq 1
+
+includefile "$1"

@@ -1,0 +1,8 @@
+#### module
+
+(Inc m)=(##2 m)
+(Trace x y)=x
+
+(Trace (Inc 3) (Inc 4))
+
+main=0

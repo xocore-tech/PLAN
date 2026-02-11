@@ -1,0 +1,679 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### wisp <- newboot
+
+:| newboot
+
+^-^ Seq Seq2 Seq3 Seq4 Sap Sap2 Force Eq Ne Lt Le Gt Ge Compare Pin Law
+^-^ If Ifz Nil And Or Inc Dec Add Sub Bex Mul Div Mod Lsh Rsh Set Test
+^-^ Bits Store8 Load8 Bytes Word8 Name Arity Body Unpin Type Nat IsNat
+^-^ IsPin IsLaw Unpin Init Last Sz Coup Up Ix Ix0 Ix1 Ix2 Ix3 Ix4 Case
+^-^ Case3 Case4 Case5 Hd Row {?} {??} {@} {=} {,} {&}
+^-^ id const
+
+= (xtry f x)             | ##8  | 0 f x
+= (xwrite fd nat sz off) | ##9  | 0 fd nat sz off
+= (xnewline fd)          | xwrite fd 10 1 0
+
+= (xwriteAll fd nat remain offset)
+| And remain
+@ wrote  |  xwrite fd nat remain offset
+@ offset | Add offset wrote
+@ remain | Sub remain offset
+| Seq3 wrote offset remain
+| xwriteAll fd nat remain offset
+
+(= NIL 0)(= CONS 0)(= lcons 0)
+
+= (xputstr nat)         | xwriteAll 1 nat (Bytes nat) 0
+= (xputstrLn nat)       | Seq (xputstr nat) (xnewline 1)
+= (lgenfrom i n f)      | And (Lt i n) | CONS (f i) | lgenfrom (Inc i) n f
+= (lgen n f)            | lgenfrom 0 n f
+= (gen n f)             | Row 0 n (lgen n f)
+= (min x y)             | If (Gt x y) y x
+= (slash v s e)         | gen (Sub e s) i&(Ix (Add s i) v)
+= (slice v s e)         | slash v s (min e | Sz v)
+= (drop n v)            | slice v n (Sz v)
+= (take n v)            | slice v 0 n
+= (map f v)             | gen (Sz v) x&(f | Ix x v)
+
+= (weld x y)
+@ xw | Sz x
+@ yw | Sz y
+| gen (Add xw yw)
+& i
+| If (Lt i xw) (Ix i x)
+| Ix (Sub i xw) y
+
+= (foldr f z row)
+^ _ 0 (Sz row)
+? (go i rem)
+| Ifz rem z
+| f (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (lintersperse sep list@[x xs])
+^ And list (lcons x (_ xs))
+? (loop list@[x xs])
+| And list
+| [sep [x (loop xs)]]
+
+= (**lcase xs nil cons)
+| Ifz xs nil (**cons (Ix 0 xs) (Ix 1 xs))
+
+= (lfoldl f z l)
+| lcase l z
+& (x xs)
+@ fzx (f z x)
+| Seq fzx
+| lfoldl f fzx xs
+
+= (cons x xs)        | weld (0 x) xs
+= (lsing x)          | CONS x 0
+= (lfoldrix f z l i) | Seq i | lcase l z (x l)&(f i x | lfoldrix f z l (Inc i))
+= (lfoldri f z l)    | lfoldrix f z l 0
+= (lfoldr f z l)     | lcase l z (x l)&(f x | lfoldr f z l)
+= (lmap f l)         | lfoldr (x xs & CONS (f x) xs) NIL l
+= (lmapi f l)        | lfoldri (i x xs & CONS (f i x) xs) NIL l
+= (lindexed l)       | lmapi 0 l
+= (lsnoc xs e)       | lcase xs (CONS e NIL) (x xs)&(CONS x | lsnoc xs e)
+= (lweld a b)        | lcase a b (x xs)&(CONS x | lweld xs b)
+= (lcat ls)          | lfoldr lweld NIL ls
+= (lgenfrom i n f)   | And (Lt i n) | CONS (f i) | lgenfrom (Inc i) n f
+= (lgen n f)         | lgenfrom 0 n f
+= (lrep i n)         | lgen n _&i
+= (stream v)         | foldr 0 NIL v
+= (rowAnd v)         | foldr And 1 v
+= (all f v)          | rowAnd (map f v)
+= (llen l)           | lfoldr (x acc & Inc acc) 0 l
+= (array l)          | Row 0 (llen l) l
+
+(lindexed [5 [6 0]] =?= [[0 5] [[1 6] 0]])
+
+= (foldl f z row)
+^ _ z 0 (Sz row)
+? (go acc i rem)
+| Seq2 i acc
+| Ifz rem acc
+| go (f acc | Ix i row) (Inc i) (Dec rem)
+
+= (strFoldr f z s)
+@ n (Bytes s)
+^ _ 0
+? (go i)
+| If (Ge i n) z
+| f (Load8 i s) (go (Inc i))
+
+= (strWeld a b) | Add (Lsh b (Lsh (Bytes a) 3)) a
+
+( strWeld "foo" "bar" =?= "foobar" )
+
+= (strCat xs)   | foldl strWeld 0 xs
+= (strAll f s)  | strFoldr (c k & And (f c) k) 1 s
+
+= (foldrRev f z row)
+^ _ (Sz row)
+? (go rem)
+| Ifz rem z
+@ i (Dec rem)
+| f (Ix i row) (go i)
+
+= (streamRev v) | foldrRev 0 NIL v
+= (rev row)     | Row 0 (Sz row) (streamRev row)
+= (arrayRev l)  | rev (array l)
+= (decimal n)   | And n [(Mod n 10) (decimal (Div n 10))]
+= (showNat n)   | Ifz n "0" | strCat | arrayRev | lmap (Add "0") | decimal n
+= (lstrcat ss)  | lfoldl strWeld 0 ss
+= (ldrop n l)   | Seq l | Ifz n l (ldrop (Dec n) (Ix1 l))
+
+= (ltake !n l)  | And n | And l | Sap2 0 (Ix0 l) | ltake (Dec n) (Ix1 l)
+
+( ltake 2 [1 [2 [3 [4 [5]]]]] =?= [1 [2 0]] )
+
+(NO=0)(YES=1)
+
+;;; Character Classes ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (strGen n f)
+^ _ 0 0
+? (loop acc i)
+| Seq acc
+| If (Ge i n) acc
+| loop (Store8 i (f i) acc) (Inc i)
+
+dquote=34 ; double-quote character
+
+= (explode str)  | gen (Bytes str) i&(Load8 i str)
+= (lexplode str) | lgen (Bytes str) i&(Load8 i str)
+
+= (packClass str)
+| foldl (acc i & Set i acc) 0 (explode str)
+
+= (unpackClass str)
+@ n (Bits str)
+^ array (_ 0)
+? (go i)
+@ rest (go (Inc i))
+| And (Lt i n)
+| If (Test i str) [i rest] rest
+
+(= lowers "abcdefghijklmnopqrstuvwxyz")
+(= uppers "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+(= digits "0123456789")
+(= specials "!#$%&'*+,-./:=?@\^_`|~<>")
+(= matchers "()[]{}")
+(= alphaNums (strCat [lowers uppers digits]))
+(= tab 9)(= newline 10)(= space 32)
+(= spaces (strCat [tab newline space]))
+(= semi ";")
+
+= symChrs | packClass | strCat [lowers uppers digits specials]
+= spcChrs | packClass | strCat [spaces]
+= natChrs | packClass | strCat [digits]
+= prnChrs | packClass | strCat [alphaNums specials matchers spaces semi]
+= opnChr  | packClass | "([{"
+
+= (isNatChr c)  | Test c natChrs
+= (isSymChr c)  | Test c symChrs
+= (isSpcChr c)  | Test c spcChrs
+= (isPrint c)   | Test c prnChrs
+= (strNone f s) | strAll c&(Nil (f c)) s
+
+=?= (strCat (unpackClass symChrs))
+  | strWeld "!#$%&'*+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "\^_`abcdefghijklmnopqrstuvwxyz|~"
+
+( strAll  isSymChr "abcDEF345_^!'"               =?= 1)
+( strNone isSymChr " ()[]{};"                    =?= 1)
+( strNone isNatChr  "abcdefghijklmnopqrstuvwxyz" =?= 1)
+( strNone isNatChr  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" =?= 1)
+( strAll  isNatChr  "01234556789"                =?= 1)
+( strNone isNatChr  "_~!@#$%^&*-=|/\:?,."        =?= 1)
+( strNone isNatChr  " ()[]{};"                   =?= 1)
+
+( all isSpcChr             [" " 9 10] =?= 1 )
+( all x&(Nil (isSpcChr x)) ["a" "("]  =?= 1 )
+
+
+;;; Reader ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (lall f list@[x xs])
+| Ifz list 1
+| And (f x)
+| lall f xs
+
+= (limplode list) ; chars -> str
+^ _ 0 0 list
+? (loop i acc list@[c cs])
+| Seq2 i acc
+| Ifz list acc
+| loop (Inc i) (Store8 i c acc) cs
+
+= (loadNum !acc list@[c cs])
+| Ifz list acc
+| loadNum (Add (Mul 10 acc) (Sub c "0")) cs
+
+= (ldropWhile f list@[x xs])
+| And list
+| If (f x) (ldropWhile f xs)
+| list
+
+= (ltakeWhile f list@[x xs])
+| And list
+| And (f x)
+| 0 x (ltakeWhile f xs)
+
+= (symbol _ cs k)
+@ scs | ltakeWhile isSymChr cs
+@ exp | Ifz (lall isNatChr scs) (limplode scs)
+      | Sap 1 (loadNum 0 scs)
+| Sap2 k exp (ldropWhile isSymChr cs)
+
+( limplode (lexplode "abcd")   =?= "abcd"         )
+( loadNum 0 ["1" ["2" ["3"]]]  =?= 123            )
+( symbol 0 ["a" ["b" ["("]]] 0 =?= ["ab" ["("]]   )
+( symbol 0 ["1" ["2" ["("]]] 0 =?= [(1 12) ["("]] )
+
+= (juxt prefix read s0 k)
+| prefix read s0
+& (item s1@[c])
+| Ifz (Test c opnChr) (k item s1)
+| read s1
+& (x s2)
+| k (0 item x) s2
+
+=?= (juxt symbol "read" ["1" ["2" [" " ["("]]]] 0)
+    [(1 12) [" " ["("]]]
+
+= (unexpected read [c] k) | ##ReadErr ("unexpected" c)
+= (ignore read [_ cs] k)  | read cs k
+
+= (skipComment list)
+| ldropWhile (Ne newline) list
+
+= (skipSpace s@[c cs])
+| If (Eq ";" c)   | skipSpace (skipComment cs)
+| If (isSpcChr c) | skipSpace cs
+| s
+
+(skipSpace [" " [" " ["a"]]] =?= ["a"])
+
+= ex | lexplode
+     } ; hello
+     }   a
+
+(skipSpace ex =?= ["a" 0])
+
+= (nestloop read mk end acc list k)
+@ list@[c cs] (skipSpace list)
+| Seq acc
+| If (Eq c end) | Sap2 k (mk acc) cs
+| read list
+& (item rest)
+| nestloop read mk end (acc item) rest k
+
+= (nested read [c cs] k)
+| If (Eq c "(") | nestloop read id           ")" 0 cs k
+| If (Eq c "[") | nestloop read (0 "BRACED") "]" 0 cs k
+|               | nestloop read (0 "CURLED") "}" 0 cs k
+
+= (expLoadStr cs)
+| limplode (ltakeWhile (Ne dquote) cs)
+
+=?= "asdf" | expLoadStr | lexplode } asdf""
+
+= (string _ [c cs] k)
+| Sap2 k (Sap 1 (expLoadStr cs)) (Ix1 (ldropWhile (Ne dquote) cs))
+
+= strExample | lexplode } "hello"asdf
+
+(string "read" strExample 0)=?=(0 (1 "hello") (lexplode "asdf"))
+
+= expTable
+| strGen 128
+& c
+| If (Eq dquote c)   | 1
+| If (Test c opnChr) | 2
+| If (isSymChr c)    | 3
+| 0
+
+= (read cs k)
+@ cs@[c] | skipSpace cs
+^ Ix (Load8 c expTable) _ read cs k
+| [unexpected string nested (juxt symbol)]
+
+= ex1 | lexplode } asdf #
+= ex2 | lexplode } 0123 #
+= ex3 | lexplode } "asdf" #
+= ex4 | lexplode }   (a b c) #
+= ex5 | lexplode } foo(a b c) #
+= ex6 | lexplode } {a b c} #
+= ex7 | lexplode } [a b c] #
+= end | lexplode " #"
+
+=?= (0 "asdf"                   end) (read ex1 0)
+=?= (0 (1 123)                  end) (read ex2 0)
+=?= (0 (1 "asdf")               end) (read ex3 0)
+=?= (0 ["a" "b" "c"]            end) (read ex4 0)
+=?= (0 ["foo" ["a" "b" "c"]]    end) (read ex5 0)
+=?= (0 ["CURLED" ["a" "b" "c"]] end) (read ex6 0)
+=?= (0 ["BRACED" ["a" "b" "c"]] end) (read ex7 0)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (load sxp@[_ sig])
+@ self (Ix0 sig)
+@ tag
+    | If (IsNat self) self
+    | Ix0 self
+@ lets (Init (drop 2 sxp))
+| [tag (map Nat sig) (map x&(Ix1 x (Ix2 x)) lets) (Last sxp)]
+
+=?= (load ["law" ["f" "x"] "x"])
+  | 0 "f" ["f" "x"] [] "x"
+
+=?=   | load
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | 0 "f"
+      ["f" "x"]
+      [("xx" ["x" "x"]) ("xxxx" ["xx" "xx"])]
+      ["x" "xx" "xxxx"]
+
+=?=   | load
+      | 0 "law"
+          [(1 5) "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | 0 5
+      [0 "x"]
+      [("xx" ["x" "x"]) ("xxxx" ["xx" "xx"])]
+      ["x" "xx" "xxxx"]
+
+;;; Environments ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+nullenv=0
+
+= (getenv key x@[k v m l r])
+| And x
+| Case3 (Compare key k)
+    (getenv key l)
+    x
+    (getenv key r)
+
+= (putenv key val mac x@[k v m l r])
+| Ifz x [key val mac]
+| Case3 (Compare key k)
+  [k v m (putenv key val mac l) r]
+  [key val mac l r]
+  [k v m l (putenv key val mac r)]
+
+= (testenv seq)
+| foldl (e x & putenv x x x e) nullenv seq
+
+( testenv [5]     =?= [5 5 5]                      )
+( testenv [5 4]   =?= [5 5 5 [4 4 4] 0]            )
+( testenv [5 6]   =?= [5 5 5 0 [6 6 6]]            )
+( testenv [5 6 7] =?= [5 5 5 0 [6 6 6 0 [7 7 7]]] )
+( testenv [5 6 1] =?= [5 5 5 [1 1 1] [6 6 6]]     )
+
+( putenv 7 2 2 (testenv [5 6 7]) =?= [5 5 5 0 [6 6 6 0 [7 2 2 0 0]]] )
+
+( getenv 4 (testenv [5 6 7]) =?= 0 )
+( getenv 5 (testenv [5 6 7]) =?= [5 5 5 0 [6 6 6 0 [7 7 7]]] )
+( getenv 6 (testenv [5 6 7]) =?= [6 6 6 0 [7 7 7]] )
+( getenv 7 (testenv [5 6 7]) =?= [7 7 7] )
+( getenv 8 (testenv [5 6 7]) =?= 0 )
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (mkenv seq)
+| foldl (e [k v m] & putenv k v m e) nullenv seq
+
+= (lindy i list@[x xs])
+| And list
+| Seq i
+| [[i x] (lindy Inc-i xs)]
+
+(lindy 1 (stream [3 4 5]) =?= stream [[1 3] [2 4] [3 5]])
+
+= (lawenv [tag sig lets body])
+@ step (env [ix nm] & putenv nm ix 0 env)
+| lfoldl step nullenv
+| lindy 0 (lweld (stream sig) (lmap Hd (stream lets)))
+
+=?=   | lawenv
+      | load
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | mkenv [["f" 0] ["x" 1] ["xx" 2] ["xxxx" 3]]
+
+=?=   | lawenv
+      | load
+      | 0 "law"
+          [(1 0) "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | mkenv [[0 0] ["x" 1] ["xx" 2] ["xxxx" 3]]
+
+= (resolve g l x)
+@ exp
+    | Case3 (Sz x) (1 0) (resolve g l (Ix0 x))
+    | map (resolve g l) x
+@ val
+    | x
+@ gb (getenv x g)
+@ lb (getenv x l)
+@ sym
+    | If lb | Ix1 lb      ;  variable reference number
+    | If gb | 1 (Ix1 gb)  ;  constant
+    | ##Throw (strWeld "undefined-" x)
+| Case3 (Hd x) exp val sym
+
+=?=   | lawenv
+      | load
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | mkenv [["f" 0] ["x" 1] ["xx" 2] ["xxxx" 3]]
+
+= (Type x)      | ##3 _&1 (_ _ _)&2 (_ _)&3 0 _&0                x
+
+= (isCode top maxref v)
+| Case4 (Type v)
+  (Le v maxref)              ; Nat
+  0                          ; Pin
+  0                          ; Law
+| Case3 (Dec (Sz v))
+    (Eq 1 (Hd v))                             ; h[a]
+    (Or (Nil (Hd v)) (And top (Eq 1 (Hd v)))) ; h[a b]
+    0                                         ; h[..]
+
+( isCode 0 5 (1 9)   =?= 1 )
+( isCode 1 5 (1 0 0) =?= 1 )
+( isCode 0 5 (1 0 0) =?= 0 )
+( isCode 1 5 (0 0 0) =?= 1 )
+( isCode 0 5 (0 0 0) =?= 1 )
+( isCode 0 5 0       =?= 1 )
+( isCode 0 5 5       =?= 1 )
+( isCode 0 5 6       =?= 0 )
+
+= (lit top maxref v)
+| If (isCode top maxref v) (0 v) v
+
+= (expr top maxref x@[a b])
+| If (IsNat x) x
+| If (Hd x)
+    | lit top maxref a
+| If (Eq 1 (Sz x))
+    | expr top maxref a
+| 0 (expr NO maxref (Init x))
+    (expr NO maxref (Last x))
+
+= (genloop maxRef lets@[l ls] body)
+| Ifz lets (expr YES maxRef body)
+| 1 (expr NO maxRef l)
+| genloop maxRef ls body
+
+= (codegen globals func@[tag sig lets body])
+@ locals | lawenv func
+@ name   | Ix0 sig
+@ arity  | Dec (Sz sig)
+@ maxRef | Add arity (Sz lets)
+| Law tag arity
+| genloop maxRef
+    | lmap x&(resolve globals locals (Ix0 x)) (stream lets)
+| resolve globals locals body
+
+= (traverse st f row)
+^ foldl _ [st 0] row
+& ([st acc] item)
+@ [st x] (f st item)
+| [st (acc x)]
+
+= (getmacro glo sym)
+@ r (getenv sym glo)
+| And (Ix2 r) ; macro flag must be set
+| Ix1 r
+
+= (expo e0 x0)
+@ hed     | Ix0 x0
+@ recur   | traverse e0 expo x0
+@ mac     | getmacro e0 hed
+@ [e1 x1] | mac e0 x0
+| If Hd-x0 [e0 x0]
+| Ifz x0 [e0 x0]
+| Ifz IsNat-hed recur
+| Ifz mac recur
+| expo e1 x1
+
+(Apply expr)=(Coup (Ix0 expr) (drop 1 expr))
+
+( Apply [Add 2 3] =?= 5 )
+
+= (eval env x)
+@ [env x]
+    | expo env x
+@ exp
+    | Case3 (Sz x) [env (1 0)] (eval env (Ix0 x))
+    @ [env vals] | traverse env eval x
+    | [env (Apply vals)]
+@ val
+    | [env (Ix0 x)]
+@ sym
+    @ r@[_ val] | getenv x env
+    | Ifz r (##Throw (strWeld "undefined:" x))
+    | [env val]
+| Case3 (Hd x) exp val sym
+
+= (letExpo env let@[x])
+@ [env x] (expo env x)
+| [env (Up 0 x let)]
+
+= (lawExpo env f@[tag sig lets body])
+@ [env lets] | traverse env letExpo lets
+@ [env body] | expo env body
+| [env [tag sig lets body]]
+
+= (ticMacro env x)
+| Ifz (Eq 2 (Sz x))
+    | ##Throw ("ticMacro" "multiple args")
+| [env (1 (Ix1 x))]
+
+= (law env f)
+@ [env fv] | lawExpo env | load f
+| 0 env
+| 1 (codegen env fv)
+
+= (define isMacro env x@[self sig val])
+@ [env value] | Force | eval env val
+| 0 (putenv sig value isMacro env)
+    (1 value)
+
+= (xtrace m x)                   | ##4 (0 m x)
+= wispPretty                     | "show"
+= (**wispPutMsgVal msg deep x k) | xtrace (msg x) k
+
+= (replstep env x)
+| xtrace x
+@ res@[[env2 out]] (xtry (eval env) x)
+| Ifz (Hd res)
+    | xtrace out
+    | [env2]
+| xtrace ("ERROR" res)
+| 1
+
+= (repl env cs)
+@ cs (skipSpace cs)
+| And cs
+| read cs
+& (x cs)
+@ out@[e2] (replstep env x)
+| If (Nat out) out
+| Ix1 (getenv "__REPL" e2) e2 cs
+
+= env0
+| mkenv
+| 0 ["law"    law         1]
+    ["macro"  (define 1)  1]
+    ["def"    (define 0)  1]
+    ["Pin"    Pin         0]
+    ["eval"   eval        0]
+    ["__REPL" repl        0]
+
+= testenv
+| putenv "a"        9          0
+| putenv "'"        ticMacro   1
+| putenv "defvalue" (define 0) 1
+| env0
+
+=?=   | law testenv
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["f" "x" "xx" "xxxx" "a"]
+  | 0 testenv
+  | 1
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | [[[[0 1] 2] 3] 9]
+
+=?=   | law testenv
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["'" ["f" "x" "xx" "xxxx" "a"]]
+  | 0 testenv
+  | 1
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | ["f" "x" "xx" "xxxx" "a"] ; quoted
+
+;; Function with sub-function via macro-expansion.
+
+=?=   | eval testenv
+      | 0 "law"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" ["law" ["eat" "x"] "eat"]]
+  | 0 testenv
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | [1 (eat a ? eat)]
+
+(= XPtrOp  ##13)
+(= XBufOp  ##14)
+
+; Could derive the pointer again each time, but keeping it instead.
+; It is stable.  Ptr is invalidated if buf is ever GC'd, so need to make
+; sure the reference stays live by touching the buffer with Seq at some
+; point when it is no longer needed.
+
+= (streamBuf buf n i)
+@ ci (Load8 i buf)
+| And (Lt i n)
+| Seq ci
+    ; VERY important that this be evaluated right here, because if it
+    ; is delated until later, then the value of the buffer will change
+    ; because we are mutating it.
+| 0 ci (streamBuf buf n (Inc i))
+
+(syscall f)=(##5 f)
+
+SYS_READ=0 ; amd64 syscall number is zero
+
+= (strTake n s)
+| limplode | ltake n | lexplode s
+
+= (readFileLoop buf ptr fd)
+@ n (syscall (SYS_READ fd ptr 128))
+| Seq2 n buf
+    ; make sure the buffer stays alive until the very end
+    ; and is not garbage collected.
+| And n
+| lweld (streamBuf buf n 0) (readFileLoop buf ptr fd)
+
+= (readFile fd)
+@ buf (XBufOp 128)
+| readFileLoop buf (XPtrOp buf) fd
+
+= (main cli)
+| repl env0 (readFile 0)

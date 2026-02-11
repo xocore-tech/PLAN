@@ -1,0 +1,320 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### bar <- newboot
+
+:|newboot
+
+= emptyBs    | 1
+= (bsSz bs)  | Dec Bytes-bs
+= (bsRow x)  | gen bsSz-x i&(Load8 i x)
+= (bsList x) | lgen bsSz-x i&(Load8 i x)
+
+= (bs row)
+@ wid Sz-row
+^ Set (Lsh wid 3) (_ 0 0 0)
+? (loop !acc i !o)
+| If (Ge i wid) acc
+@ acc | Add acc (Lsh (Ix i row) o)
+| loop acc Inc-i Add-8-o
+
+(mkBuf n)=(Bex (Lsh n 3))
+
+(mkBuf 0 =?= 1)
+(mkBuf 1 =?= 256)
+
+= (bsCat row)               ;  TODO: Once StoreUniq is implemented, use that
+@ wid | sum | map bsSz row  ;  to run everything in place.
+@ buf | mkBuf wid
+^ _ buf 0 0
+? (loop !buf !off !i)
+| If (Ge off wid) buf
+@ val | Ix i row
+@ siz | bsSz val
+@ buf | Store off siz val buf
+| loop buf (Add off siz) Inc-i
+
+= (bsWeld x y)
+@ xw | bsSz x
+@ yw | bsSz y
+| Store 0  xw x
+| Store xw yw y
+| mkBuf (Add xw yw)
+
+; TODO: The above is must faster in theory, especially with StoreUniq, but
+; until Store is actually jetted, it is slow as hell.
+
+= (bsWeld x y)
+@ xw | Dec-(Bits x)
+| Add (Clear xw x) (Lsh y xw)
+
+=?= (bsWeld (Add 256 "x") (Add 256 "y"))
+    (Add 65536 "xy")
+
+= (bsSliceKnown off wid bar)
+@ x | Load off wid bar
+| Set (Lsh Bytes-x 3) x
+
+= (bsSlice off wid bar)
+@ siz | bsSz bar
+@ wid | min wid (Sub siz off)
+| Ifz wid 1
+| bsSliceKnown off wid bar
+
+= (bsTake i x)
+@ z (bsSz x)
+| If (Ge i z) x
+| bsSliceKnown 0 i x
+
+= (bsDrop i x)
+@ n (bsSz x)
+@ w (Sub n i)
+| Ifz w 1
+| Rsh x (Lsh i 3)
+
+= (bsIx i x)   ;' This checks the length before loading the byte because
+@ n (bsSz x)   ;' otherwise we might load the high bit.  If you *know*
+| And (Lt i n) ;' that the read is in-bounds, you can just use Load8.
+| Load8 i x
+
+= (**bsGet x i) | bsIx i x
+= (bsFromNat x) | Set (Lsh Bytes-x 3) x
+= (natFromBs x) | Clear (Dec Bits-x) x
+
+= (listEnumFrom i)
+@ !j (Inc i)
+| (i, listEnumFrom j)
+
+= (bsFindIndexOff pred off bs)
+@ len (bsSz bs)
+^ _ off
+? (loop ix)
+| If (Ge ix len) len
+| If (pred | bsIx ix bs) ix
+| loop (Inc ix)
+
+(bsElemIndexOff byte off bs)=(bsFindIndexOff Eq-byte off bs)
+
+;' Bar > Bar > Nat > Bit
+= (bsIsPrefixOf needle haystack off)
+| Eq needle
+| bsSlice off (bsSz needle) haystack
+
+= (listFindIndex pred xs notFound found)
+^ lfoldr _ notFound (lindexed xs)
+& (idxVal rest)
+| Ifz (pred | snd idxVal) rest
+| found (fst idxVal)
+
+= (bsFindIndex f b)  | listFindIndex f bsList-b NONE SOME
+
+;' Bar > Bar > List Int
+= (bsSubstringSearch needle haystack)
+@ needleWidth   (bsSz needle)
+@ haystackWidth (bsSz haystack)
+| Ifz needleWidth
+    | ltake haystackWidth (listEnumFrom 0)
+@ firstByte (bsIx 0 needle)
+^ (_ 0)
+? (go off)
+@ found (bsElemIndexOff firstByte off haystack)
+| If (Ge found haystackWidth) NIL
+@ isMatch (bsIsPrefixOf needle haystack found)
+@ more    (go | Inc found)
+| If isMatch (CONS found more)
+| else more
+
+;' this function corresponds approximately to `Data.Text.splitOn` from
+;' Haskell's `text` package.
+;' Bar > Bar > List Bar
+= (bsSplitOn needle haystack)
+@ needleWidth (bsSz needle)
+| Ifz needleWidth | NIL
+^ (_ 0 (bsSubstringSearch needle haystack))
+? (go s xs)
+| **lcase xs
+    | lsing (bsTake (Sub (bsSz haystack) s) (bsDrop s haystack))
+& (x xs)
+;' filter indices s.t. overlapping ones get dropped.
+@ xs   | lfilter (v & Ge v (Add x needleWidth)) xs
+@ next | bsTake (Sub x s) (bsDrop s haystack)
+| CONS next
+| go (Add x needleWidth) xs
+
+= (bsSplitOneWith fun b)
+: i < ocase (bsFindIndex fun b) [b emptyBs]
+| (bsTake i b, bsDrop Inc-i b)
+
+
+
+;;; String Stuff ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (strGen n f)
+^ _ 0 0
+? (loop !acc i)
+| If (Ge i n) acc
+| loop (Store8 i f-i acc) Inc-i
+
+= (explode str) | gen Bytes-str i&(Load8 i str)
+= (implode row) | strGen Sz-row i&(Ix i row)
+
+( implode ["a" "s" "d" "f"] =?= "asdf" )
+( ["a" "s" "d" "f"] =?= explode "asdf" )
+
+
+;;; Syntax ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= blWantText } Bar literals require a text parameter, for example: b#asdf
+= blTwoKids  } Bar literals need too kids, for example: b#adsf
+= blBadHeir  } Bar literals may not have heirs.
+= blBadMacro } Bar literals must look like b#... or x#...
+
+= (isUpper c) | And (Ge c {A}) (Le c {Z})
+= (toLower c) | If (isUpper c) (Add 32 c) c
+
+= (hexCharToNat v)
+| If (Le v {9}) (Sub v {0})
+@ v (toLower v)
+| Add 10 (Sub (min v {f}) {a})
+
+= (hexCharToNat v)
+| If (Le v {9}) (Sub v {0})
+@ v (toLower v)
+| Add 10 (Sub (min v {f}) {a})
+
+;' Str > Bar
+= (bsFromHex nat)
+@ dig | map hexCharToNat explode-nat
+@ pad | If (even Sz-dig) [] [0]
+@ buf | stream cat-[pad dig [0 1]]
+^ _ 0 buf 1
+? (loop acc lis pos)
+| Seq acc
+| lcase lis acc
+& (a as)
+| lcase as (Die {impossible})
+    ;' ^ This will always succeed because the input was manipulated to
+    ;' guarentee an even-length character sequence.
+& (b bs)
+@ acc | Add acc | Add Mul-pos-b | Mul-pos | Mul 16 a
+@ pos | Mul 256 pos
+| loop acc bs pos
+
+= (foldMultiLine rex err ok)
+@ topStyle (rexStyle rex)
+| If (Ne {LINE} topStyle)
+    | err rex {non-line-string contains heir.  What?}
+^ (_ NIL rex)
+? (go acc rex)
+| Ifz rex
+    | ok | implode | array | lintersperse 10 | lrev acc
+@ style (rexStyle rex)
+| If (Ne style topStyle)
+    | err rex {Each line of a multiline-string must be a leaf of the same style}
+@ acc (CONS (rexText rex) acc)
+| go acc (rexHeir rex)
+
+
+;' Rex > Read Bar
+= (readBsLit rex err ok)
+@ kids rexKids-rex
+@ text rexText-(Ix0 kids)
+| If (Ne 2 Sz-kids) | err rex blTwoKids
+| If (And (Ne {b} text) (Ne {x} text))
+    | err rex blBadMacro
+@ mk     | If (Eq {b} text) bsFromNat bsFromHex
+@ valRex | Ix1 kids
+: ty _ _ text _ _ _ heir _ _ < rexOpen valRex
+| Ifz (Eq {LEAF} ty) | err valRex blWantText
+| Ifz heir           | ok (mk text)
+| foldMultiLine valRex err t&(ok mk-t)
+
+= ({#x} ss rex)
+: bar < readBsLit rex (sireErr ss)
+| (ss, cnsE bar)
+
+{#b}#=(.{#x})
+
+( bs ["a" "s" "d" "f"] =?= b#asdf )
+( bs [255]             =?= x#ff   )
+( bs [0 0]             =?= x#0000 )
+( bs [0 1]             =?= x#0001 )
+
+
+;;; Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+( bsWeld 256 256 =?= bs [0 0] )
+( bsWeld 257 256 =?= bs [1 0] )
+( bsWeld 256 257 =?= bs [0 1] )
+
+( bsFromNat "a"                =?= Add "a" 256 )
+( natFromBs (bsFromNat "asdf") =?= "asdf"      )
+
+(bsTake 0 bs-[1 2 3] =?= bs-[]      )
+(bsTake 1 bs-[1 2 3] =?= bs-[1]     )
+(bsTake 2 bs-[1 2 3] =?= bs-[1 2]   )
+(bsTake 3 bs-[1 2 3] =?= bs-[1 2 3] )
+(bsTake 4 bs-[1 2 3] =?= bs-[1 2 3] )
+
+( bsRow (bsDrop 0 bs-[1 2 3]) =?= [1 2 3] )
+( bsRow (bsDrop 1 bs-[1 2 3]) =?= [2 3]   )
+( bsRow (bsDrop 2 bs-[1 2 3]) =?= [3]     )
+( bsRow (bsDrop 3 bs-[1 2 3]) =?= []      )
+( bsRow (bsDrop 4 bs-[1 2 3]) =?= []      )
+
+( bs []    =?= 1   )
+( bs [0]   =?= 256 )
+( bs [1]   =?= 257 )
+( bs [255] =?= 511 )
+( bs [0 0] =?= 65536 )
+( bs [1 0] =?= 65537 )
+
+( bsRow bs-["a" "b" "c"] =?= ["a" "b" "c"] )
+
+= (testBsCat cs) | bsCat (map bs cs)
+
+( testBsCat []                           =?= bs []                    )
+( testBsCat [[]]                         =?= bs []                    )
+( testBsCat [[] []]                      =?= bs []                    )
+( testBsCat [["a"]]                      =?= bs ["a"]                 )
+( testBsCat [["a"]]                      =?= bs ["a"]                 )
+( testBsCat [["a"] ["b" "c"]]            =?= bs ["a" "b" "c"]         )
+( testBsCat [["a" "b" "c"] ["d" "e"]]    =?= bs ["a" "b" "c" "d" "e"] )
+( testBsCat [["a" "b" "c"] [] ["d" "e"]] =?= bs ["a" "b" "c" "d" "e"] )
+( testBsCat [,"a" ,"b" ,"c" ,"d" ,"e"]   =?= bs ["a" "b" "c" "d" "e"] )
+
+
+=?= b#bcd    | bsSlice 1 3 b#abcde
+=?= b#bc     | bsSlice 1 5 b#abc
+
+=?= 1 | bsIsPrefixOf b#{aa} b#{aabb} 0
+=?= 0 | bsIsPrefixOf b#{aa} b#{aabb} 1
+=?= 0 | bsIsPrefixOf b#{bb} b#{aabb} 0
+
+=?= 0 (bsElemIndexOff {c} 0 b#{caca})
+=?= 2 (bsElemIndexOff {c} 1 b#{caca})
+=?= 2 (bsElemIndexOff {c} 2 b#{caca})
+=?= 4 (bsElemIndexOff {c} 3 b#{caca})
+=?= 4 (bsElemIndexOff {c} 4 b#{caca})
+=?= 4 (bsElemIndexOff {c} 5 b#{caca})
+
+=?= 1 (bsElemIndexOff {c} 0 b#{acac})
+=?= 1 (bsElemIndexOff {c} 1 b#{acac})
+=?= 3 (bsElemIndexOff {c} 2 b#{acac})
+=?= 3 (bsElemIndexOff {c} 3 b#{acac})
+=?= 4 (bsElemIndexOff {c} 4 b#{acac})
+=?= 4 (bsElemIndexOff {c} 5 b#{acac})
+
+=?= [0 [1 [2 0]]] | bsSubstringSearch b#{} b#bba
+=?= [2 [6 0]]     | bsSubstringSearch b#aa b#bbaabbaa
+
+;;; Aliases ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+natBar=bsFromNat
+barNat=natFromBs
+barLen=bsSz
+barDrop=bsDrop
+barGet=bsGet
+barSubstringSearch=bsSubstringSearch
+barSplitOn=bsSplitOn
+barIdx=bsIx

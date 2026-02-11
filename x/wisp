@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -ex
+
+if [ "$#" -eq 1 ]
+then module="$1"
+else module="base"
+fi
+
+x/wisp-make "$module" > .wisp-tmp
+
+make x/plan
+
+mkdir -p oldseed xseed
+plunder save -Z oldseed/wisp wisp
+plunder save -Z --new-format xseed/wisp.seed wisp
+
+x/plan xseed/wisp.seed < .wisp-tmp
+
+rm -f .wisp-tmp
+
+echo "SUCCESS"

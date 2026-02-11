@@ -1,0 +1,3486 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### newboot
+
+Pin=(##0)
+Law=(##1)
+Inc=(##2)
+Eat=(##3)
+Die=(##die)
+
+= (Force x)     | ##1 0 1 0-x 0
+= (Seq x y)     | ##3 _&y (_ _ _)&y (_ _)&y y _&y                x
+= (Strict n x)  | ##3 _&x (_ _ _)&x (_ _)&x x m&(Seq x Strict-m) n
+= (IsPin x)     | ##3 _&1 (_ _ _)&0 (_ _)&0 0 _&0                x
+= (IsLaw x)     | ##3 _&0 (_ _ _)&1 (_ _)&0 0 _&0                x
+= (IsApp x)     | ##3 _&0 (_ _ _)&0 (_ _)&1 0 _&0                x
+= (IsNat x)     | ##3 _&0 (_ _ _)&0 (_ _)&0 1 _&1                x
+= (ToBit x)     | ##3 _&1 (_ _ _)&1 (_ _)&1 0 _&1                x
+= (Nil x)       | ##3 _&0 (_ _ _)&0 (_ _)&0 1 _&0                x
+= (Type x)      | ##3 _&1 (_ _ _)&2 (_ _)&3 0 _&0                x
+= (Unpin x)     | ##3 x&x (_ _ _)&0 (_ _)&0 0 _&0                x
+= (Name x)      | ##3 _&0 (n _ _)&n (_ _)&0 0 _&0                x
+= (Arity x)     | ##3 _&0 (_ a _)&a (_ _)&0 0 _&0                x
+= (Body x)      | ##3 _&0 (_ _ b)&b (_ _)&0 0 _&0                x
+= (Init x)      | ##3 _&0 (_ _ _)&0 (h _)&h 0 _&0                x
+= (Last x)      | ##3 _&0 (_ _ _)&0 (_ t)&t 0 _&0                x
+= (If x t e)    | ##3 _&t (_ _ _)&t (_ _)&t e _&t                x
+= (Ifz x t e)   | ##3 _&e (_ _ _)&e (_ _)&e t _&e                x
+= (Nat x)       | ##3 _&0 (_ _ _)&0 (_ _)&0 0 _&x                x
+= (Dec x)       | ##3 _&0 (_ _ _)&0 (_ _)&0 0 x&x                x
+= (times f z x) | ##3 _&z (_ _ _)&z (_ _)&z z (times f f-z)      x
+
+= (Seq2 a b c)       | Seq a          | Seq b c
+= (Seq3 a b c d)     | Seq2 a b       | Seq c d
+= (Seq4 a b c d e)   | Seq3 a b c     | Seq d e
+= (Seq5 a b c d e f) | Seq4 a b c e   | Seq e f
+= (Sap2 f x y)       | Seq2 x y       | f x y
+= (Sap3 f a b c)     | Seq3 a b c     | f a b c
+= (Sap4 f a b c d)   | Seq4 a b c d   | f a b c d
+= (Sap5 f a b c d e) | Seq5 a b c d e | f a b c d e
+
+= (xtrace m x)           | ##4  | 0 m x
+= (xdbg x)               | ##4  | 0 x x
+= (syscall f)            | ##5  f
+= (peek buf off sz)      | ##6  | 0 buf off sz
+
+; TODO: Change function argument order when we figure out best order.
+= (poke buf wid off dat) | ##7  | 0 buf dat off wid
+
+= (xtry f x)             | ##8  | 0 f x
+= (xwrite fd nat sz off) | ##9  | 0 fd nat sz off
+= (xread fd nat sz off)  | ##10 | 0 fd nat sz off
+
+(Profile lawref x)=x
+
+(Profile Profile 5 =?= 5)
+
+= (xsetprofon x) | ##19 | 0 x
+= (xgetprof x) | ##20 | 0 x
+
+(Fresh x)=(##3 _&0 (_ _ _)&0 (f x)&(f x) 0 Inc x)
+
+(Fresh 77 =?= 77)
+(4 5      =?= Strict 1 3 4 5)
+(5        =?= Strict 2 3 4 5)
+(Strict 0 =?= Strict 3 3 4 5)
+(Strict 1 =?= Strict 4 3 4 5)
+
+(Fresh 0-1 =?= 0-1)
+
+(NO=0)(YES=1)
+
+= (And x y)  | If x y x     ; x,y
+= (Or x y)   | If x x y     ; x,y
+= (Xor x y)  | If x Nil-y y ; x,y
+= (Nand x y) | If x Nil-y 1 ; x,y
+= (Nor x y)  | If x 0 Nil-y ; x,y
+= (Xnor x y) | If x y Nil-y ; x,y
+= (**else x) | x            ; x,y
+
+not=Nil
+
+= (Add x y) | times Inc Nat-x y ; y,x
+= (Sub x y) | times Dec Nat-x y ; y,x
+= (Mul x y) | times Add-x 0 y   ; y,x
+= (Pow b p) | times Mul-b 1 p   ; p,b
+= (Bex p)   | Pow 2 p           ; p
+
+= (Eq x y)      | Nor (Sub x y) (Sub y x)         ; y,x
+= (Ne x y)      | ToBit | Or  (Sub x y) (Sub y x) ; y,x
+= (Le x y)      | Nil (Sub x y)                   ; y,x
+= (Ge x y)      | Nil (Sub y x)                   ; x,y
+= (Lt x y)      | Nil (Sub Inc-x y)               ; y,x
+= (Gt x y)      | Nil (Sub Inc-y x)               ; x,y
+= (min x y)     | If (Gt x y) y x                 ; x,y
+= (max x y)     | If (Gt x y) x y                 ; x,y
+= (Compare x y) | min 2 (Sub Inc-x y)             ; y,x
+
+; ') TODO: Rename Compare to Cmp (right now we need both jets active
+; ') because the semantics are different, but we can't kill the old onle
+; ') because it's still in the seed, and we can't change the seed because
+; ') we can't quine!
+
+(Eq 3 4 =?= 0)(Eq 4 4 =?= 1)(Eq 5 4 =?= 0)
+(Ne 3 4 =?= 1)(Ne 4 4 =?= 0)(Ne 5 4 =?= 1)
+
+(Sub 3 4)
+(Lt 3 4 =?= 1)
+(Sub 4 4)
+(Lt 4 4 =?= 0)
+(Sub 5 4)
+(Lt 5 4 =?= 0)
+
+=?= 10086913586276986678343434265636765134100413253239154346994769388588640160184049752311475368916954506401941229553057792
+  | Sub
+    10086913586276986678345570252672686044182808274945323899109372093110996812953996793919297588642735146951964191639994368
+    2135987035920910082395021706169552114602704522356652769947041607822219725780640550022962086936576
+
+= (Div x y)                                              ; y,x
+^ And y (_ x y)
+? (go x y)
+| If (Le x y) 0 Inc-(go (Sub x y) y)
+
+= (Mod x y)      | Sub x (Mul y | Div x y)               ; y,x
+= (DivMod x y)   | Force (0 (Div x y) (Mod x y))         ; y,x
+= (Lsh v n)      | Mul Bex-n v                           ; n,v
+= (Rsh v n)      | Div v Bex-n                           ; n,v
+= (Trunc w n)    | Mod n Bex-w                           ; w,n
+= (Cut o w n)    | Trunc w (Rsh n o)                     ; w,o,n
+= (Wipe o w n)   | Sub n (Lsh (Cut o w n) o)
+= (Edit o w v n) | Add (Wipe o w n) (Lsh (Trunc w v) o)
+= (Bits n)       | And n (Inc Bits-(Rsh n 1))            ; n
+= (Test i n)     | Cut i 1 n                             ; i,n
+= (Set i n)      | If  (Test i n) n (Add Bex-i n)        ; i,n
+= (Clear i n)    | Ifz (Test i n) n (Sub n Bex-i)        ; i,n
+
+(Test 0 0 =?= 0)(Test 0 1 =?= 1)(Test 0 2 =?= 0)(Test 0 3 =?= 1)
+
+(Cut 0 2 0 =?= 0)(Cut 0 2 1 =?= 1)(Cut 0 2 2 =?= 2)(Cut 0 2 3 =?= 3)
+(Cut 0 2 0 =?= 0)(Cut 0 2 1 =?= 1)(Cut 0 2 2 =?= 2)(Cut 0 2 3 =?= 3)
+
+" Test  = Bit index "
+" Bits  = Bit size  "
+" Set   = Set-bit   "
+" Clear = Clear-bit "
+
+= (Word1 x)   | Trunc 1 x
+= (Word8 x)   | Trunc 8 x
+= (Word16 x)  | Trunc 16 x
+= (Word32 x)  | Trunc 32 x
+= (Word64 x)  | Trunc 64 x
+= (Word128 x) | Trunc 128 x
+= (Word256 x) | Trunc 256 x
+
+(w1=Word1)(w8=Word8)(w16=Word16)(w32=Word32)(w64=Word64)
+(w128=Word128)(w256=Word256)
+
+
+; TODO: should probably inline the "case" and "up" helpers into their
+; jets.  The current pattern is pretty unconventional and creates a bunch
+; of extra tiny pins for no reason.
+
+= (case r i)   | Last (times Init r i)
+= (up v r i)   | Ifz i (Init r v) (up v Init-r Dec-i Last-r)
+= (Hd x)       | ##3 _&x (_ _ _)&x (h _)&(Hd h)       x _&x    x
+= (Sz v)       | ##3 _&0 (_ _ _)&0 (h t)&(Inc Sz-h)   0 _&0    v
+= (Case i r f) | ##3 _&f (_ _ _)&f (_ _)&f            f case-r (Sub Sz-r i)
+= (Coup x o)   | ##3 _&x (_ _ _)&x (h t)&(Coup x h t) x _&x    o
+= (Up i v r)   | ##3 _&r (_ _ _)&r (_ _)&r            r up-v-r (Sub Sz-r i)
+= (Ix i r)     | Case i r 0
+= (Rep hd v n) | times acc&(acc v) Nat-hd n
+= fst          | Ix 0
+= snd          | Ix 1
+
+( Coup 2 (0 1 0) =?= 2 1 0     )
+( Rep 0   3 4    =?= 0 3 3 3 3 )
+( Rep Rep 3 4    =?= 0 3 3 3 3 )
+( Rep 9   3 4    =?= 9 3 3 3 3 )
+
+(Up_ i v r)=(Up i v r) ; HACK! Mutable variant of Up.  It's only safe
+                       ; to call this with unique pointers.  This is
+                       ; just part of an effort to build up to proper
+                       ; blitz behavior before actually implementing
+                       ; the bytecode interpreter.
+
+(foo i v n x)=(Up_ i v | Rep 0 x n)
+
+(foo 1 "hi" 3 7 =?= 0 7 "hi" 7)
+
+;;; Bitwise Operations ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (bitwise f x y)
+@ max | max Bits-x Bits-y
+^ _ 0 0
+? (go i acc)
+| If | Eq i max
+    acc
+| If | f Test-i-x Test-i-y
+    | go (Inc i) (Set-i-acc)
+| go (Inc i) acc
+
+= (Dis x y) | bitwise Or  x y
+= (Con x y) | bitwise And x y
+= (Mix x y) | bitwise Xor x y
+
+;;; Should these be jetted? ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (Ix0 i) | Ix 0 i
+= (Ix1 i) | Ix 1 i
+= (Ix2 i) | Ix 2 i
+= (Ix3 i) | Ix 3 i
+= (Ix4 i) | Ix 4 i
+= (Ix5 i) | Ix 5 i
+= (Ix6 i) | Ix 6 i
+= (Ix7 i) | Ix 7 i
+
+= (Case3 x a b c)     | Case x (0 a b) c
+= (Case4 x a b c d)   | Case x (0 a b c) d
+= (Case5 x a b c d e) | Case x (0 a b c d) e
+
+
+;;; Alternative Versions of Case and Ix ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (CaseAlt i r f)
+| Ifz IsNat-i f
+@ case (r i & Last (times Init r i))
+| ##3 _&f (_ _ _)&f (_ _)&f f case-r (Sub Sz-r i)
+
+(IxAlt i r)=(CaseAlt i r 0)
+
+
+;;; Mutual Recursion ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (Core self x y core)
+@ arm  | Ix Hd-x core
+@ need | Arity arm
+@ have | Add 2 Sz-x ; +2 because we will also pass self and y
+| If (Lt have need) self (Coup arm-self)
+| x y
+
+= (constEvenOdd x y)
+| Core constEvenOdd x y
+| 0 (? (even self a n) | Ifz n (0 a YES) | self 1 a Dec-n)
+    (? (odd self a n)  | Ifz n (0 a NO)  | self 0 a Dec-n)
+
+(constEven k n)=(constEvenOdd 0 k n)
+(constOdd k n)=(constEvenOdd 1 k n)
+
+=?= (constEvenOdd 0 3)       | constEvenOdd (0 3)
+=?= (constEvenOdd (0 3) 4)   | 0 3 1
+=?= (constEvenOdd 0 3 4)     | 0 3 1
+=?= (constEvenOdd 0 4 5)     | 0 4 0
+=?= (constEven 4 5)          | 0 4 0
+=?= (constOdd 4 5)           | 0 4 1
+=?= (constEvenOdd (0 4 5) 6) | 0 4 0 6
+
+
+;;; Array from List ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (Row hd n l)
+^ _ Nat-n Nat-hd l
+? (go n r l)
+| Ifz n r
+| Seq r
+| Seq l
+| go Dec-n (r fst-l) snd-l
+
+( Row 3         2   (0 1 (0 2 (0 3 0))) =?= 3 1 2     )
+( Row 0         2   (0 1 (0 2 (0 3 0))) =?= 0 1 2     )
+( Row Row       2   (0 1 (0 2 (0 3 0))) =?= 0 1 2     )
+( Row 0         Row (0 1 (0 2 (0 3 0))) =?= 0         )
+( Row 1         2   (0 1 (0 2 (0 3 0))) =?= 1 1 2     )
+( Row 2         3   (0 1 (0 2 (0 3 0))) =?= 2 1 2 3   )
+( Row 3         4   (0 1 (0 2 (0 3 0))) =?= 3 1 2 3 0 )
+( Row 4         4   (0 1 (0 2))         =?= 4 1 2 0 0 )
+( Row 5         4   (0 1 (0 2 888))     =?= 5 1 2 0 0 )
+( Row 6         2   (0 1 (0 2 Die-0))   =?= 6 1 2     ) ; ') Minimal evaluation
+( Row 7         0   Die-0               =?= 7         )
+( Row 8         Row Die-0               =?= 8         )
+( Row 9         Row Die-0               =?= 9         )
+( Row (Add 5 5) Row Die-0               =?= 10        )
+( Row Row       Row Die-0               =?= 0         )
+
+; n = count
+; i = input offset
+; o = output offset
+; s = input array (source)
+; d = target array (destination)
+= (Copy n i o s d)
+| Seq5 n i o s d
+^ _ Nat-n Nat-i Nat-o d
+? (go n i o d)
+| Seq3 i o d
+| Ifz n d
+| go Dec-n Inc-i Inc-o (Up o (Ix i s) d)
+
+("a" 7 8 3 4  =?= Copy 2 0 0 (0 7 8 9)    ("a" 1 2 3 4)) ; partial
+("a" 1 7 8 4  =?= Copy 2 0 1 (0 7 8 9)    ("a" 1 2 3 4)) ; output offset
+("a" 8 9 3 4  =?= Copy 2 1 0 (0 7 8 9)    ("a" 1 2 3 4)) ; input offset
+("b" 1 8 9 4  =?= Copy 2 1 1 (0 7 8 9)    ("b" 1 2 3 4)) ; partial+offset
+("c" 1 7 8 9  =?= Copy 3 0 1 (0 7 8 9)    ("c" 1 2 3 4)) ; full+offset
+("d" 7 8 9 10 =?= Copy 4 0 0 (0 7 8 9 10) ("d" 1 2 3 4)) ; full
+("e" 7 8 9 0  =?= Copy 4 0 0 (0 7 8 9)    ("e" 1 2 3 4)) ; over-copy
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (planArity o)
+@ p @ item (Unpin o)
+    | If IsNat-item | Case item (0 1 3 1 6) 1
+    | else          | planArity item
+@ l | Arity o
+@ a | Sub (planArity Hd-o) Sz-o
+@ n | 0
+| Ix Type-o (0 n p l a)
+
+xyz=3
+
+(planArity 0         =?= 0)
+(planArity 1         =?= 0)
+(planArity "hello"   =?= 0)
+(planArity ##0       =?= 1)
+(planArity ##1       =?= 3)
+(planArity ##2       =?= 1)
+(planArity ##3       =?= 6)
+(planArity ##4       =?= 1)
+(planArity ##5       =?= 1)
+(planArity x&x       =?= 1)
+(planArity Add       =?= 2)
+(planArity Unpin-Add =?= 2)
+(planArity Add-1     =?= 1)
+(planArity 0-0       =?= 0)
+(planArity Case      =?= 3)
+(planArity Case-0    =?= 2)
+(planArity Case-0-0  =?= 1)
+
+= (Switch keys key branches fallback)
+@ n Sz-keys
+^ _ 0
+? (go i)
+| If (Ge i n)             | fallback
+| If (Eq key (Ix i keys)) | Ix i branches
+| else                    | go Inc-i
+
+(Switch (0 "3" "4" "5") "2" (0 "4" "5" "6") "7" =?= "7")
+(Switch (0 "3" "4" "5") "3" (0 "4" "5" "6") "7" =?= "4")
+(Switch (0 "3" "4" "5") "4" (0 "4" "5" "6") "7" =?= "5")
+(Switch (0 "3" "4" "5") "5" (0 "4" "5" "6") "7" =?= "6")
+(Switch (0 "3" "4" "5") "6" (0 "4" "5" "6") "7" =?= "7")
+(Switch (0 "3" "4" "5") "7" (0 "4" "5" "6") "7" =?= "7")
+
+
+;;; Linear Search, Switch ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; ') TODO: use `search` instead?
+; ')
+; ') That would require that we sort each set of keys,
+; ') but maybe that's find?  We need that code, so it
+; ') would save some code to use it everywhere.
+
+= (has e row)
+^ _ 0 Sz-row
+? (go i rem)
+| And rem
+| Or (Eq e (Ix i row))
+| go Inc-i Dec-rem
+
+
+;;; Binary Search ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (search key row stride low end)
+| Profile search
+@ mid | Rsh (Add low end) 1
+@ ix  | Mul stride mid
+| If (Ge low end) (Lsh ix 1)
+| Ix | Compare key (Ix ix row)
+| 0
+  (search key row stride low mid)
+  (Inc | Mul ix 2)
+  (search key row stride Inc-mid end)
+
+= (searchSet key row) | search key row 1 0 Sz-row
+= (searchTab key row) | search key row 2 0 (Rsh Sz-row 1)
+
+
+;;; Folds ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (foldr f z row)
+^ _ 0 Sz-row
+? (go i rem)
+| Ifz rem z
+| f (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (foldrRev f z row)
+^ _ Sz-row
+? (go rem)
+| Ifz rem z
+@ i Dec-rem
+| f (Ix i row) (go i)
+
+= (foldri f z row)
+^ _ 0 Sz-row
+? (go i rem)
+| Ifz rem z
+| f i (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (foldl f z row)
+^ _ z 0 Sz-row
+? (go acc i rem)
+| Seq i
+| Seq acc
+| Ifz rem acc
+| go (f acc | Ix i row) (Inc i) (Dec rem)
+
+;;; Constructing and Combining Rows ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (gen n f)
+^ Row 0 n (_ 0)
+? (go i)
+| Seq i | 0 f-i | go Inc-i
+
+( gen 3 Inc =?= 0 1 2 3 )
+
+= (weld x y)
+@ xw | Sz x
+@ yw | Sz y
+| gen (Add xw yw)
+& i
+| If (Lt i xw) (Ix i x)
+| Ix (Sub i xw) y
+
+= (insert ix val row)
+| gen (Inc Sz-row)
+& i
+| Ix (Compare i ix)
+| 0 (Ix i row) val (Ix Dec-i row)
+
+= (splice at new old)
+| gen (Add Sz-new Sz-old)
+& i
+@ j     | Sub i at
+@ newSz | Sz new
+| If (Lt i at)     | Ix i old
+| If (Lt j newSz)  | Ix j new
+| else             | Ix (Sub i newSz) old
+
+= (map f v)       | gen Sz-v x&(f | Ix x v)
+= (**turn v f)    | map f v
+= (cons x xs)     | weld (0 x) xs
+= (snoc xs x)     | weld xs (0 x)
+= (**put r i v)   | Up i v r
+= (**get r i)     | Ix i r
+= (**foreach x f) | map f x
+= (rowAnd v)      | foldr And 1 v
+= (sum v)         | foldl Add 0 v
+= (all f v)       | rowAnd (map f v)
+= (cat vs)        | foldl weld 0 vs
+= (catMap f r)    | cat (map f r)
+= (zipWith f a b) | gen (min Sz-a Sz-b) i&(f Ix-i-a Ix-i-b)
+= (zip a b)       | zipWith 0 a b
+= (slash v s e)   | gen (Sub e s) i&(get v | Add s i)
+= (slice v s e)   | slash v s (min e | Sz v)
+= (drop n v)      | slice v n (Sz v)
+= (take n v)      | slice v 0 n
+= (init row)      | take (Dec Sz-row) row
+
+;;; Exceptions (Impure) ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; This is a hack to get things working in the short term,
+; until Blitz is done and can solve these problems in general.
+
+(testexn xs)=(xtry (map Die) xs)
+
+(testexn 0       =?= 0     0)
+(testexn (0 1 2) =?= "die" 1)
+(testexn (Add 3) =?= "die" 3)
+
+;;; Rex Trees ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(c tag)=(tag ##rex)
+
+(WORD = c-"WORD")(TEXT = c-"TEXT")(LINE = c-"LINE")(OPEN = c-"OPEN")
+(NEST = c-"NEST")(INFX = c-"INFX")(PREF = c-"PREF")(SHUT = c-"SHUT")
+(EMBD = c-"EMBD")
+
+= (rexRune x)      | If (Ne 4 | Sz x) 0 | Ix 1 x
+= (rexSetRune r x) | If (Ne 4 | Sz x) x | Up 1 r x
+= (rexHeir x)      @ i (Dec Sz-x) | Ifz Dec-i 0 | Ix i x
+= (rexSetHeir h x) @ i (Dec Sz-x) | Ifz Dec-i x | Up i h x
+= (rexText x)      | If (Ne 3 | Sz x) 0 | Ix 1 x
+= (rexSetText t x) | If (Ne 3 | Sz x) x | Up 1 t x
+= (rexSons x)      | If (Ne 4 | Sz x) 0 | Ix 2 x
+= (rexSetSons s x) | If (Ne 4 | Sz x) x | Up 2 s x
+= (rexEmbd x)      | If (Ne 2 | Sz x) 0 | Ix 1 x
+= (rexIsEmbd rex)  | Eq 2 Sz-rex
+= (rexIsLeaf rex)  | Eq 3 Sz-rex
+= (rexIsNode rex)  | Eq 4 Sz-rex
+= (rexType rex)    | Ix (Sub Sz-rex 2) (0 "EMBD" "LEAF" "NODE")
+= rexStyle         | Hd
+
+= (**rexOpen rex cb)
+@ type  | rexType rex
+@ style | rexStyle rex
+@ rune  | rexRune rex
+@ text  | rexText rex
+@ embd  | rexEmbd rex
+@ sons  | rexSons rex
+@ nSon  | Sz sons
+@ heir  | rexHeir rex
+@ kids  | Ifz heir sons (snoc sons heir)
+@ nKid  | Sz kids
+| **cb type style rune text embd sons nSon heir kids nKid
+
+= (rexKids rex)
+@ sons (rexSons rex)
+@ heir (rexHeir rex)
+| Ifz heir sons (snoc sons heir)
+
+;;; Convenience Macros ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (varE v)  | WORD v 0
+= (txtE t)  | TEXT t 0
+= (ctxE nm) | Ifz nm (**txtE nm) (**varE nm)
+
+= (sireErrFmt renderLineNum ss rex msg)
+@ ctx (Ix 1 ss)
+@ ln  (Ix 4 ss)
+@ blk (Ix 5 ss)
+| OPEN "#" | 0 varE-"block" | blk
+| OPEN "#" | 0 varE-"what"  | rex
+| OPEN "#" | 0 varE-"where" | SHUT ":" (0 ctxE-ctx renderLineNum-ln) 0
+| OPEN "#" | 0 varE-"why"   | txtE-msg
+| 0
+
+= (sireErr ss rex msg)
+| ##SireErr "(sireErrFmt EMBD ss rex msg)"
+
+= (cnsE v)             | EMBD v
+= (appE exps)          | If (Eq 1 Sz-exps) (fst exps) | NEST "#|" exps 0
+= (rowE xs)            | Ifz IsApp-xs      (EMBD 0)   | appE (cons EMBD-0 xs)
+
+("," st rex)=(0 st rowE-(rexKids rex))
+
+= ("++" ss rex)
+^ (ss, rowE (_ 0 rex))
+? (go acc rex)
+@ sons              | rexSons rex
+@ rune              | rexRune rex
+@ itemRex           | If (Eq 1 Sz-sons) (fst sons) (OPEN "|" sons 0)
+| Ifz rex           | acc
+| If (Ne "++" rune) | acc rex
+| Ifz sons          | sireErr ss rex "usage: (++ x), (++ f x y), etc"
+| else              | go (acc itemRex) rexHeir-rex
+
+= (binop val ss rex)
+@ kids (rexKids rex)
+| If (Ne 2 | Sz kids) | sireErr ss rex "this is a binary operator"
+| (ss, appE (EMBD val, fst kids, snd kids))
+
+("&&" = binop And)("||" = binop Or)("::" = binop 0)
+("==" = binop Eq)("!=" = binop Ne)
+
+= (":" ss rex)
+@ sons  | rexSons rex
+@ args  | take Dec-(Sz sons) sons
+@ apps  | Last sons
+@ body  | rexHeir rex
+| If    | Or Nil-body | Or (Lt Sz-sons 2) | And (Ne "<" rexRune-apps)
+                                          | (Ne "<-" rexRune-apps)
+    | sireErr ss rex "Invalid use of :"
+^ (ss, _)
+| OPEN "|" (rexKids apps)
+| OPEN "&" ,(NEST "|" args 0)
+| body
+
+;;; Maybe, List, Either ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(NONE = 0)(SOME = 0)(NIL = 0)(CONS = 0)(LEFT = 0)(RIGHT = 1)
+
+lcons=0
+
+= (**ocase mb non som)  | Ifz mb non (**som Last-mb)
+= (**lcase xs nil cons) | Ifz xs nil (**cons Ix-0-xs Ix-1-xs)
+= (**ecase x l r)       | If Hd-x (**r fst-x) (**l fst-x)
+
+= (omap x f) | And x | SOME | f | fst x
+
+= (lfoldl f z l)
+: x xs < lcase l z
+@ fzx (f z x)
+| Seq fzx
+| lfoldl f fzx xs
+
+= (lzipwith f al bl)
+^ And al (And bl _)
+| CONS (f fst-al fst-bl) (lzipwith f snd-al snd-bl)
+
+= (lfoldr f z l)     | lcase l z (x l)&(f x | lfoldr f z l)
+= (lfoldrix f z l i) | Seq i | lcase l z (x l)&(f i x | lfoldrix f z l Inc-i)
+= (lfoldri f z l)    | lfoldrix f z l 0
+= (lsing x)          | CONS x 0
+= (lmap f l)         | lfoldr (x xs & CONS f-x xs) NIL l
+= (lmapi f l)        | lfoldri (i x xs & CONS f-i-x xs) NIL l
+= (**lturn l f)      | lmap f l
+= (**lturni l f)     | lmapi f l
+= (lix i l)          | Seq l | Ifz i fst-l (lix Dec-i snd-l)
+= (llastUnsafe l)    | (xs @ snd l)(Ifz xs fst-l | llastUnsafe xs)
+= (llen l)           | lfoldr (x acc & Inc acc) 0 l
+= (stream v)         | foldr 0 NIL v
+= (streamRev v)      | foldrRev 0 NIL v
+= (lor v)            | lfoldr Or 0 v
+= (land v)           | lfoldr And 1 v
+= (lany f v)         | lor lmap-f-v
+= (lall f v)         | land lmap-f-v
+= (lhas e xs)        | lany Eq-e xs
+= (lrange n)         | CONS n (lrange Inc-n)
+= (lweld a b)        | lcase a b (x xs)&(CONS x | lweld xs b)
+= (lcat ls)          | lfoldr lweld NIL ls
+= (lcatmap f r)      | lcat (lmap f r)
+= (lcatmapi f r)     | lcat (lmapi f r)
+= (lzip a b)         | lzipwith 0 a b
+= (lfilter f lis)    | lfoldr (x xs)&(Ifz f-x xs | CONS x xs) 0 lis
+= (lgenfrom i n f)   | And (Lt i n) | CONS f-i | lgenfrom Inc-i n f
+= (lgen n f)         | lgenfrom 0 n f
+= (lrep i n)         | lgen n _&i
+= (lrev xs)          | lfoldl (x y & CONS y x) NIL xs
+= (lsnoc xs e)       | lcase xs (CONS e NIL) (x xs)&(CONS x | lsnoc xs e)
+= (ltake n l)        | (n && (l && (fst-l, ltake Dec-n snd-l)))
+= (ldrop n l)        | Seq l | Ifz n l (ldrop Dec-n snd-l)
+= (lfindix p l nf f) | lfoldri (i v l & Ifz p-v l f-i) nf l
+= (linit l)          @ xs snd-l | And l | And xs (fst l, linit xs)
+= (lscanl f x l)     | 0 x | And l | lscanl f (f x fst-l) snd-l
+= (lprescanl f x xs) | linit (lscanl f x xs)
+= (turni row f)      | Row 0 Sz-row (lturni stream-row f)
+= (**lforeach l f)   | lmap f l
+
+; lcatMaybes : List (Maybe a) -> List a
+= (lcatMaybes list)
+| And list
+@ x    | fst-list
+@ rest | lcatMaybes snd-list
+| If x | CONS (fst x) rest
+| else | rest
+
+(lmapMaybe f list)=(lcatMaybes | lmap f list)
+
+= ({~} ss rex)
+@ args (rexKids rex)
+| If (Ne 1 Sz-args) | sireErr ss rex {Expected 1 Parameter}
+| 0 ss (NEST "|" (EMBD stream, fst-args) 0)
+
+( lcatMaybes ~[0 [1] [2]] =?= ~[1 2] )
+
+(odd x)=(Trunc 1 x)
+(even x)=(Nil | Trunc 1 x)
+
+(even 3 =?= 0)
+(even 4 =?= 1)
+(even 5 =?= 0)
+
+(lall even stream-[0 2 4 6] =?= 1)
+(lall even stream-[0 1 4 6] =?= 0)
+(lall even stream-[0 2 4 5] =?= 0)
+(lall even stream-[]        =?= 1)
+
+ls=stream
+
+= (lenumFrom n)      | CONS n (lenumFrom Inc-n)
+= (lindexed l)       | lzip (lenumFrom 0) l
+
+= (ltakewhile f l)
+: x xs < lcase l NIL
+| And f-x
+| CONS x (ltakewhile f xs)
+
+= (ldropwhile f l)
+: x xs < lcase l NIL
+| Ifz f-x l (ldropwhile f xs)
+
+( linit []                 =?= []                    )
+( linit [3 []]             =?= []                    )
+( linit [3 [4 [5 [6 []]]]] =?= [3 [4 [5 []]]]        )
+
+( [[0 1] [[1 2] []]] =?= lmapi 0 [1 [2 []]] )
+
+( lfindix x&x [0 [1 [0 []]]] "N" "F" =?= "F" 1 )
+( lfindix x&x [0 [0 [1 []]]] "N" "F" =?= "F" 2 )
+( lfindix x&x [0 [0 [0 []]]] "N" "F" =?= "N"   )
+( lfindix not [0 [1 [0 []]]] "N" "F" =?= "F" 0 )
+
+(streamRev [3 4 5] =?= [5 [4 [3 0]]])
+
+(ltake 0 [3 [4 [5 0]]] =?= 0)
+(ltake 1 [3 [4 [5 0]]] =?= [3 0])
+(ltake 2 [3 [4 [5 0]]] =?= [3 [4 0]])
+(ltake 3 [3 [4 [5 0]]] =?= [3 [4 [5 0]]])
+(ltake 4 [3 [4 [5 0]]] =?= [3 [4 [5 0]]])
+
+= (array l)    | Row 0 llen-l l
+= (fill tag l) | Row tag llen-l l
+= (rev row)    | Row 0 Sz-row streamRev-row
+= (arrayRev l) | rev (array l)
+
+( arrayRev [3 [4 [5 []]]] =?= [5 4 3] )
+
+; > Row (Either a b) > (Row a, Row b)
+= (partition r)
+^ map (fill 0) (foldr _ [NIL NIL] r)
+& (x i)
+@ lefts  | fst i
+@ rights | snd i
+| If Hd-x | (lefts, CONS (fst x) rights)
+| else    | (CONS (fst x) lefts, rights)
+
+=?= ([0 3], [1 2])
+  | partition [LEFT-0 RIGHT-1 RIGHT-2 LEFT-3]
+
+;;; Row Traversal ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (**openPair x k)   | **k (Ix 0 x) (Ix 1 x)
+= (**openTriple x k) | **k (Ix 0 x) (Ix 1 x) (Ix 2 x)
+
+= (lmapstate_gen f list st)
+| Ifz list st
+: x xs < openPair list
+: st r < openPair (f x st)
+| Seq st
+| (r, lmapstate_gen f xs st)
+
+= (lmapstate f xs st)
+@ n (llen xs)
+^ (ldrop n _, ltake n _)
+| lmapstate_gen f xs st
+
+= (mapstate f row st)
+@ n Sz-row
+^ (ldrop n _, Row 0 n _)
+| lmapstate_gen f stream-row st
+
+= (lmapstate_ f list st)
+| And list
+: x xs < openPair list
+: st r < openPair (f x st)
+| Seq st
+| (r, lmapstate_ f xs st)
+
+= (mapstate_ f row st)
+| Row 0 Sz-row (lmapstate_ f stream-row st)
+
+( (13, [4 8 13])    =?= mapstate  (x st)&(Add x st, Add x st) [3 4 5]    1 )
+( (13, ls-[4 8 13]) =?= lmapstate (x st)&(Add x st, Add x st) ls-[3 4 5] 1 )
+( [4 8 13]          =?= mapstate_ (x st)&(Add x st, Add x st) [3 4 5]    1 )
+
+;;; Binary Search Trees, Dictionaries ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (dictSearchCase key table notFound found)
+@ res | searchTab key table
+@ ix  | Rsh res 1
+| Ifz (Mod res 2) notFound
+| Seq ix
+| found ix (Ix Inc-ix table)
+
+= bstEmpty        | 0
+= (**bstSing k v) | [k v 0 0]
+
+= (**bstNodeCase x empty node)
+| Ifz x empty
+| **node (Ix 0 x) (Ix 1 x) (Ix 2 x) (Ix 3 x)
+
+= (bstWalk x)
+| Profile bstWalk
+: _ _ l r < bstNodeCase x NIL
+| lweld bstWalk-l x::(bstWalk r)
+
+(bstKeyList x)=(lmap fst bstWalk-x)
+
+= (bstMapStrict f x)
+: k v l r < bstNodeCase x NIL
+@ l      | bstMapStrict f l
+@ r      | bstMapStrict f r
+@ v      | f v
+| Strict 3 l r v
+| [k v l r]
+
+= (bstSearch k x)
+: xk xv l r < bstNodeCase x NONE
+| Ifz x NONE
+@ LT | bstSearch k l
+@ EQ | SOME xv
+@ GT | bstSearch k r
+| Case3 (Compare k xk) LT EQ GT
+
+(**bstSearchCase k t nf f)=(ocase (bstSearch k t) nf f)
+
+= (merge x y)
+: xk xv xl xr < bstNodeCase x y
+: yk yv yl yr < bstNodeCase y x
+| [yk yv (merge x yl) yr]
+
+= (bstAlter k f x)
+: xk xv l r < bstNodeCase x (ocase (f NONE) 0 (bstSing k))
+@ LT | [xk xv (bstAlter k f l) r]
+@ EQ | ocase (f SOME-xv) (merge l r) nv&[k nv l r]
+@ GT | [xk xv l (bstAlter k f r)]
+| Case3 (Compare k xk) LT EQ GT
+
+= (bstLoad table)
+^ _ 0 (Rsh Sz-table 1)
+? (go off end)
+@ wid      | Sub end off
+@ zeroCase | bstEmpty
+@ oneCase  @ i (Mul 2 off) | bstSing (Ix i table) (Ix Inc-i table)
+| Case3 wid zeroCase oneCase
+@ mid   | Add off (Div wid 2)
+@ i     | Mul 2 mid
+@ k     | Ix i table
+@ v     | Ix Inc-i table
+@ l     | go off mid
+@ r     | go Inc-mid end
+| [k v l r]
+
+(bstSave x)=(array | lcatmap kv&(fst kv :: (snd kv :: NIL)) bstWalk-x)
+
+= (bstDel nm bst)       | bstAlter nm _&NONE bst
+= (bstIns k v t)        | bstAlter k (_ & SOME v) t
+= (bstPut t k v)        | bstAlter k (_ & SOME v) t
+= (bstHas k t)          | IsApp (bstSearch k t)
+= (bstCase k t f)       | bstSearchCase k t f a&a
+= (bstIdx k t)          | **bstCase k t 0
+= bstIsEmpty            | Nil
+= (bstFromPairsList xs) | lfoldl (t kv & bstIns fst-kv snd-kv t) 0 xs
+= (bstToPairs t)        | fill 0 | lmap (kv)&(fst kv, snd kv) bstWalk-t
+= (bstUnion x y)        | lfoldl (t kv & bstIns fst-kv snd-kv t) y bstWalk-x
+
+
+;; List Unique ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (lnub x)
+^ bstKeyList (lfoldl _ bstEmpty x)
+& (set x)
+| bstIns x 0 set
+
+( lnub ~[2 9 4 2 9] =?= ~[2 4 9] )
+
+
+;;; Strings ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= newlineChar    10
+= spaceChar      32
+= (isDigit c)    | And (Ge c "0") (Le c "9")
+= (isUpper c)    | And (Ge c "A") (Le c "Z")
+= (isLower c)    | And (Ge c "a") (Le c "z")
+= (isAlpha c)    | Or isUpper-c isLower-c
+
+= (**mul8 x)  | Lsh x 3
+
+= (Bytes s)          | Rsh (Add 7 Bits-s) 3
+= (Load o w n)       | Cut mul8-o mul8-w n
+= (Erase o w n)      | Wipe mul8-o mul8-w n
+= (Store o w v n)    | Edit mul8-o mul8-w v n
+= (Splice i o n s b) | Store o n (Load i n s) b
+= (Load8 o n)        | Load o 1 n
+= (Load16 o n)       | Load o 2 n
+= (Load32 o n)       | Load o 4 n
+= (Load64 o n)       | Load o 8 n
+= (Store8 o v n)     | Store o 1 v n
+= (Store16 o v n)    | Store o 2 v n
+= (Store32 o v n)    | Store o 4 v n
+= (Store64 o v n)    | Store o 8 v n
+
+( Word8  (Dec Bex-8)  =?= Dec Bex-8  )
+( Word16 (Dec Bex-16) =?= Dec Bex-16 )
+( Word32 (Dec Bex-32) =?= Dec Bex-32 )
+( Word64 (Dec Bex-64) =?= Dec Bex-64 )
+( Word8  Bex-8        =?= 0          )
+( Word16 Bex-16       =?= 0          )
+( Word32 Bex-32       =?= 0          )
+( Word64 Bex-64       =?= 0          )
+( Word8  (Inc Bex-8)  =?= 1          )
+( Word16 (Inc Bex-16) =?= 1          )
+( Word32 (Inc Bex-32) =?= 1          )
+( Word64 (Inc Bex-64) =?= 1          )
+
+( Word64 "hello"        =?= "hello"    )
+( Word64 "hello world!" =?= "hello wo" )
+( Word32 "hello"        =?= "hell"     )
+( Word32 "hello world!" =?= "hell"     )
+( Word16 "hello"        =?= "he"       )
+( Word16 "hello world!" =?= "he"       )
+( Word8  "hello"        =?= "h"        )
+( Word8  "hello world!" =?= "h"        )
+
+( Splice 0 0 2 "axe" "burp" =?= "axrp"  )
+( Splice 1 0 2 "axe" "burp" =?= "xerp"  )
+( Splice 0 1 3 "axe" "burp" =?= "baxe"  )
+( Splice 0 2 3 "axe" "burp" =?= "buaxe" )
+
+("h"        =?= Load8  0  "hello there")
+("e"        =?= Load8  1  "hello there")
+("o"        =?= Load8  4  "hello there")
+("o "       =?= Load16 4  "hello there")
+("e"        =?= Load16 10 "hello there")
+("el"       =?= Load16 1  "hello there")
+("ello"     =?= Load32 1  "hello there")
+("ello the" =?= Load64 1  "hello there")
+
+( Word8 "xyz"  =?= "x"  )
+( Word16 "xyz" =?= "xy" )
+
+( Erase 0 1 65535 =?= Lsh 255 8 )
+( Erase 0 2 65535 =?= 0         )
+( Erase 1 1 65535 =?= 255       )
+( Erase 1 2 65535 =?= 255       )
+
+( Store 0 1 "xy" "ASDF" =?= "xSDF"  )
+( Store 1 0 "xy" "ASDF" =?= "ASDF"  )
+( Store 1 1 "xy" "ASDF" =?= "AxDF"  )
+( Store 1 2 "xy" "ASDF" =?= "AxyF"  )
+( Store 3 2 "xy" "ASDF" =?= "ASDxy" )
+
+
+;;; Output ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (xnewline fd)
+| xwrite fd 10 1 0
+
+= (xwriteAll fd nat remain offset)
+| And remain
+@ wrote  |  xwrite fd nat remain offset
+@ offset | Add offset wrote
+@ remain | Sub remain offset
+| Strict 3 wrote offset remain
+| xwriteAll fd nat remain offset
+
+(xputstr nat)=(xwriteAll 1 nat Bytes-nat 0)
+(xputbar nat)=(xwriteAll 1 nat (Dec Bytes-nat) 0)
+
+(xputstrLn nat)=(Seq (xputstr nat) (xnewline 1))
+(xputbarLn nat)=(Seq (xputbar nat) (xnewline 1))
+
+
+;;; String Manipulation ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (strFoldl f z s)
+@ n (Bytes s)
+^ _ z 0
+? (go acc i)
+| If (Ge i n) acc
+| Seq acc
+| go (f acc (Load8 i s)) Inc-i
+
+= (strFoldr f z s)
+@ n (Bytes s)
+^ _ 0
+? (go i)
+| If (Ge i n) z
+| f (Load8 i s) (go Inc-i)
+
+( strFoldl 0 7 ""    =?= 7       )
+( strFoldl 0 7 "a"   =?= 0 7 "a" )
+( strFoldl 0 7 "abc" =?= 0 (0 (0 7 "a") "b") "c" )
+
+( strFoldr 0 7 ""    =?= 7       )
+( strFoldr 0 7 1     =?= 0 1 7   )
+( strFoldr 0 7 "a"   =?= 0 "a" 7 )
+( strFoldr 0 7 "abc" =?= 0 "a" (0 "b" (0 "c" 7)) )
+
+= (strWeld a b) | Store Bytes-a Bytes-b b a
+= (strCat xs)   | foldl strWeld 0 xs
+= (strAny f s)  | strFoldr (c k & Or f-c k) 0 s
+= (strAll f s)  | strFoldr (c k & And f-c k) 1 s
+= (strHas c s)  | strAny Eq-c s
+
+= (strFindIndexOff f off str)
+@ wid (Bytes str)
+^ _ off
+? (loop ix)
+| If (Ge ix wid) wid
+| If f-(Load8 ix str) ix
+| loop Inc-ix
+
+= (strElemIndexOff byte off bar) | strFindIndexOff Eq-byte off bar
+= (dropBytes wid n)              | Rsh n mul8-wid
+
+( strWeld "ab" "cd"       =?= "abcd"   )
+( strCat ["ab" "cd" "ef"] =?= "abcdef" )
+( strCat ["a" 0 "ef"]     =?= "aef"    )
+( strCat "fdsa"           =?= 0        )
+
+
+;;; Keywords, Nicer Error Messages ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (decimal n) | And n | (Mod n 10, decimal (Div n 10))
+= (showNat n) | Ifz n "0" | strCat | arrayRev | | lmap (Add "0") | decimal n
+
+= (natE n)           | WORD (showNat n) 0
+= (renderLnNum ln)   | **varE (showNat ln)
+= (sireErr ss r msg) | ##SireError (sireErrFmt renderLnNum ss r msg)
+
+( showNat 0   =?= "0" )
+( showNat 1   =?= "1" )
+( showNat 254 =?= "254" )
+( showNat 255 =?= "255" )
+( showNat 256 =?= "256" )
+( showNat 1024 =?= "1024" )
+( showNat 12345678901234567890 =?= "12345678901234567890" )
+
+= (**gensym st k)
+@ nex | Ix 0 st
+@ aft | Inc nex
+@ st  | Up 0 aft st
+@ nm  | varE (strWeld "_g" showNat-nex)
+| Strict 3 aft st nm
+| **k st nm
+
+(bloodline lis)=(lfoldr (i r & rexSetHeir r i) 0 lis) ; List Rex > Rex
+
+= ("#" ss rex)
+: _ _ _ text _ _ _ _ kids nKid < rexOpen rex
+@ k1          | fst kids
+@ text        | rexText k1
+| Ifz nKid    | sireErr ss rex } Needs kids>=1
+| Ifz text    | sireErr ss k1  } needs to be text
+@ name        | strWeld "#" text
+@ bindPin     | bstIdx name (Ix 2 ss)
+@ macro       | snd (Unpin bindPin)
+| Ifz bindPin | sireErr ss rex (strWeld "undefined symbol: #" text)
+| macro ss rex
+
+;;; Sire Symbols ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (isSymbolChar c)
+| Or Eq-"_"-c
+| Or isAlpha-c isDigit-c
+
+= (strIsSymbol str)
+| And str
+| And (| not | isDigit | Word8 str)
+| strAll isSymbolChar str
+
+= (isPrintableChar c)
+| And (Ge c " ") (Le c "~")
+
+= (strIsPrintable str)
+| And str
+| strAll isPrintableChar str
+
+= (readSymbol rex err ok)
+@ rune (rexRune rex)
+@ kids (rexKids rex)
+@ nKid (Sz kids)
+| If (Eq "." rune)
+    | If (Ne 1 nKid)
+        | err rex "Should be .x, .5, .{x}, etc"
+    @ kid (Ix 0 kids)
+    | Ifz (rexIsLeaf kid)
+        | err rex "Should be .x, .5, .{x}, etc"
+    | If (Eq "WORD" | rexStyle kid)
+        | err rex "TODO: readSymbol should support .foo and .234"
+    | ok (rexText kid)
+: _ style _ text _ sons nSon heir _ _ < rexOpen rex
+| If (Ne "WORD" style) | err rex "expected a bare word"
+| If heir              | err rex "unexpected heir"
+| Ifz strIsSymbol-text | err rex "bad symobl character"
+| ok text
+
+(readSymbolEx ss rex)=(readSymbol rex (sireErr ss) (x & x))
+
+;;; Destructuring Bind ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (expandPat ss pat val body)
+: _ style rune _ _ sons nSon heir _ _ < rexOpen pat
+: ss tmp < gensym ss
+; fail   | (sireErr ss pat "invalid pattern")
+| If heir (##UnexpectedHeir pat) ;fail
+^ Switch ["!" "," "@"] rune _ (##BadRune rune) ;fail
+++ ; "!"
+    | If (Ne 1 nSon) (##BadBang rune) ;fail
+    ^ (ss, _)
+    | OPEN "#@" (tmp, val)
+    | OPEN "#|" (EMBD Seq, tmp)
+    | OPEN "@"  (fst sons, tmp)
+    | body
+++ ; ","
+    ^ (ss, OPEN "#@" (tmp, val) (foldri _ body sons))
+    & (i son heir)
+    | OPEN "@" (son, appE (EMBD Ix-i, tmp)) heir
+++ ; "@"
+    | If (Ne 2 nSon) (##BadLet pat) ;fail
+    : alias pat < openPair sons
+    | Seq (readSymbolEx ss alias)
+    ^ (ss, _)
+    | OPEN "#@" (alias, val)
+    | OPEN "@"  (pat, alias)
+    | body
+
+= ("@" ss rex)
+: _ style rune _ _ _ _ heir kids nKid    < rexOpen rex
+: pat val body                           < openTriple kids
+: _ patStyle patRune _ _ _ _ patHeir _ _ < rexOpen pat
+| If (nKid != 3)                         | sireErr ss rex "expected three kids"
+| If (Eq "WORD" patStyle)
+    | If patHeir | expandPat ss patHeir val body
+    | (ss, rexSetRune "#@" rex)
+| expandPat ss pat val body
+
+= (isPattern rex)
+#@ isStructBind | And (Eq "WORD" rexStyle-rex) not-(Nil rexHeir-rex)
+#| Or isStructBind (has rexRune-rex ["!" "," "@"])
+; (isStructBind || has rexRune-rex ["!" "," "@"])
+
+= (rebindPatternArgs ss args)
+^ mapstate _ args (ss, NIL)
+& (son acc)
+@ (ss, rebinds) acc
+| Ifz isPattern-son (acc, son)
+: ss newArgRex < gensym ss
+| ((ss, CONS [son newArgRex] rebinds), newArgRex)
+
+= (wutMacro wutRune ss rex)
+@ kids@[sigRex bodyRex]   | rexKids rex
+@ sigRune                 | rexRune sigRex
+@ sigSons                 | rexSons sigRex
+| If (Ne 2 Sz-kids)       | ##"sireErr ss rex" "bad lambda (kids!=2)"
+| If (Ne "|" sigRune)     | ##"sireErr ss rex" "bad lambda (not |)"
+| If rexHeir-sigRex       | ##"sireErr ss sigRex" "unexpected heir"
+| If (Lt Sz-sigSons 2)    | ##"sireErr ss rex" ("bad lambda (sigSons < 2)", sigSons, 2)
+@ fallback                | (ss, rexSetRune wutRune rex)
+@ ([ss rebinds], args)    | rebindPatternArgs ss (drop 1 sigSons)
+| Ifz rebinds             | fallback ; TODO Ifz IsApp-rebinds ?
+^ (ss, _)
+| OPEN wutRune [(NEST "|" (cons fst-sigSons args) 0)]
+^ lfoldr _ bodyRex rebinds
+& (rebind heir)
+| OPEN "@" rebind heir
+
+("?" = wutMacro "#?")("??" = wutMacro "#??")
+
+= ("&" ss rex)
+@ kids@[sigRex bodyRex] | rexKids rex
+@ sigRune               | rexRune sigRex
+| If (Ne 2 Sz-kids)     | ##"sireErr ss rex" "&: bad lambda"
+| If rexHeir-sigRex     | sireErr ss sigRex "unexpected heir"
+@ fallback              | (ss, rexSetRune "#&" rex)
+| If (Eq "|" sigRune)
+    @ [[ss rebinds] args] (rebindPatternArgs ss rexSons-sigRex)
+    | Ifz rebinds fallback ; TODO Ifz IsApp-rebinds fallback ?
+    ^ (ss, _)
+    | OPEN "#&" [(NEST "|" args 0)]
+    ^ lfoldr _ bodyRex rebinds
+    & (rebind heir)
+    | OPEN "@" rebind heir
+| If (isPattern sigRex)
+    : ss newArgRex < gensym ss
+    | 0 ss | OPEN "#&" [newArgRex]
+           | OPEN "@" [sigRex newArgRex]
+           | bodyRex
+| fallback
+
+= (unrollTis rex)
+@ heir (rexHeir rex)
+| Ifz heir                 | lsing rex
+| If (Ne "=" rexRune-heir) | lsing rex
+| CONS (rexSetHeir 0 rex)
+| unrollTis heir
+
+= (parseDefine ss rex)
+: _ _ _ _ _ _ _ heir kids@[sig val] nKid < rexOpen rex
+: _ _ sigRune _ _ _ _ _ sigKids sigNKid  < rexOpen sig
+^ And (Eq "|" sigRune) | And (Ge sigNKid 2) | And (Eq nKid 2) | _
+@ nmRex | fst sigKids
+@ nm    | If (Eq "**" rexRune-nmRex) (fst | rexSons nmRex) nmRex
+| (nm, sig, val)
+
+= ("=" ss rex)
+^ 0 ss | bloodline | lmap _ | unrollTis rex
+& rex
+@ res@(nm, sig, body) (parseDefine ss rex)
+| Ifz res (OPEN "#=" (rexKids rex) 0)
+| OPEN "#=" (nm, OPEN "??" [sig body] 0) 0
+
+;;; "#simpleswitch" ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (isSireDecimal str) | And Nat-str | strAll isDigit str
+= (loadSireDecimal s) | strFoldl (acc c & Add (Mul 10 acc) (Sub c "0")) 0 s
+
+( loadSireDecimal "256" =?= 256 )
+
+= (readSimpleKey ss rex)
+| If (Or rexHeir-rex not-(rexIsLeaf rex))
+    | sireErr "not a key"
+@ txt (rexText rex)
+| If (Eq "WORD" rexStyle-rex && isSireDecimal txt)
+    | loadSireDecimal txt
+| txt
+
+= (readItems ss rex)
+| Ifz rex NIL
+| If ("-" != rexRune rex) | sireErr ss rex "Expected a - rune"
+| CONS (rexSetHeir 0 rex)
+| readItems ss (rexHeir rex)
+
+= (readBranches ss rex) ; Rex > Read (List (Any, Rex))
+: item                 < lturn (readItems ss rex)
+@ sons@[keyRex expRex] | rexSons item
+| If (Sz sons != 2)  | sireErr ss rex "expected a key and a value"
+| (readSimpleKey ss keyRex, expRex)
+
+= ("#simpleswitch" ss rex)
+: _ _ _ _ _ _ _ _ kids nKid < rexOpen rex
+@ [_x expr wild armsRex] | kids
+| If (Ne 4 nKid)         | sireErr ss "expected four kids"
+@ arms | array (readBranches ss armsRex)
+@ keys | map fst arms
+@ vals | map snd arms
+^ (ss, _)
+| appE (EMBD Switch, EMBD keys, expr, rowE vals, wild)
+
+;;; "#struct" ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= ("#struct" ss rex)
+@ kids   | rexKids rex
+@ sign   | Ix 2 kids
+@ sKid   | rexKids sign
+@ cnstr  | fst sKid
+@ fields | drop 1 sKid
+| Ifz  && (Sz kids == 3)
+       && (rexRune sign == "|")
+        | (Sz sKid)
+    | sireErr ss rex "usage: struct#(CONSTRUCTOR field...)"
+@ fields
+    : field     < foreach fields
+    @ fieldKids | rexKids field
+    @ nm        | fst fieldKids
+    | If   && (rexStyle field == "WORD")
+            | (Nil rexHeir-field)
+        field
+    | If   && (rexRune field == "/")
+           && (Sz fieldKids == 2)
+           && (rexStyle nm == "WORD")
+            | (Nil rexHeir-nm)
+        nm
+    | Die ["bad input" [rex field]]
+    ; atm, this is just laziness, but eventually this will be the *right*
+    ; way to do things.
+@ gettersAndSetters
+    ^ bloodline (lcat _)
+    : i getterSym < lturni (stream fields)
+    @ struct    | WORD "_x" 0
+    @ newVal    | WORD "_y" 0
+    @ setterSym | WORD (strWeld (rexText getterSym) "Set") 0
+    | CONS | OPEN "#=" (getterSym, EMBD (Ix i)) 0
+    | CONS | OPEN "#=" (setterSym, EMBD (Up i)) 0
+    | NIL
+^ (ss, _)
+@ sig | NEST "|" (cons (PREF "**" [cnstr] 0) fields) 0
+@ bod | rowE fields
+| OPEN "#=" [sig bod]
+| gettersAndSetters
+
+;;; "#simpledata" ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= ("#simpledata" ss rex)
+@ bad | sireErr ss rex "bad #simpledata"
+| If (| Ne 2 | Sz | rexSons rex) bad
+@ fields
+    ^ _ (rexHeir rex)
+    ? (loop rex)
+    @ sons | rexSons rex
+    | Ifz rex NIL
+    | Ifz sons bad
+    | If ("-" != rexRune rex) bad
+    @ !cnstr | readSymbolEx ss fst-sons
+    | cnstr::(loop rexHeir-rex)
+^ (ss, bloodline _)
+: cnstrNm < lturn fields
+| OPEN "#=" (varE cnstrNm, EMBD cnstrNm) 0
+
+;;; "#simplecase" ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (readSimpleCaseBranches ss rex)
+@ sons       | rexSons rex
+@ nSon       | Sz sons
+@ lastSon    | Dec nSon
+@ valid      | (("-" == rexRune rex) || Ge nSon 2)
+| Ifz rex    | NIL
+| Ifz valid  | sireErr ss rex "expected something like: - FOO a b c | bodyExpr"
+@ syms       | map (readSymbolEx ss) (take lastSon sons)
+| CONS (fst syms, drop 1 syms, Ix lastSon sons)
+| readSimpleCaseBranches ss (rexHeir rex)
+
+(rowMax xs)=(foldl max 0 xs)
+(maxOf f xs)=(rowMax | map f xs)
+
+= ("#simplecase" ss rex)
+
+    @ kids@[_ expr fallback branchListRex] (rexKids rex)
+
+    | If (Sz kids != 4) | sireErr ss rex "expected four params"
+
+    @ branches | array (readSimpleCaseBranches ss branchListRex)
+    @ keys     | map fst branches
+    : ss tmpE  < gensym ss
+    @ tagE     | appE (EMBD Hd, tmpE)
+    @ fieldVar | i&(varE | strWeld "_f" showNat-i)
+
+    @ fieldBinds
+        @ maxNumFields | maxOf [_ fields _]&(Sz fields) branches
+        : i < lgen maxNumFields
+        | OPEN "#@" (fieldVar i, appE (EMBD Ix-i, tmpE)) 0
+
+    @ bodyExp
+        ^ OPEN "#|" (EMBD Switch, EMBD keys, tagE, _, fallback) 0
+        ^ rowE (map _ branches)
+        & [_cnstr fields body]
+        | bloodline
+        | lsnoc
+            : i field < lturni stream-fields
+            | OPEN "#@" (varE field, fieldVar i) 0
+        | OPEN "#|" [body] 0
+
+    ^ (ss, _)
+    | OPEN "#@" (tmpE, expr)
+    | bloodline (lsnoc fieldBinds bodyExp)
+
+;;; Rex Quasi Quotation ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; TODO: Put these helper functions somewhere else, this section should just be
+;; for the quasiquoter.
+
+= (compose g f y) | g (f y)
+
+= (traverseList f xs return) ; (a > (b>r)) > Row a > m (Row b)
+^ _ NIL xs
+? (go acc remain)
+: head tail < lcase remain (return | lrev acc)
+: newHead   < f head
+| go (CONS newHead acc) tail
+
+= (rowTraverse f xs return) ; (a > (b>r)) > Row a > m (Row b)
+: out < traverseList f (stream xs)
+| return (fill 0 out)
+
+
+= (readQuasiTree readVal readExp rex err ok)
+@ rune | rexRune rex
+@ heir | rexHeir rex
+@ kids | rexKids rex
+@ nKid | Sz kids
+| If (rexIsEmbd rex)
+    | err rex {quasi-quotation contains unexpected PLAN embed}
+| If (Eq {$$} rune)
+    | If (Ne 1 nKid)
+        | err rex {Too many/few sons for $$ in ` macro}
+    | readVal (fst kids) err (compose ok EMBD)
+| If (Eq {$} rune)
+    | If (Ne 1 nKid)
+        | err rex {Too many/few sons for $ in ` macro}
+    | readExp (fst kids) err (compose ok EMBD)
+: heir
+    < & ret
+      | Ifz heir (ret 0)
+      | readQuasiTree readVal readExp heir err ret
+| If (rexIsLeaf rex)
+    | ok (rexSetHeir heir rex)
+| else
+    : sons
+        < ^ rowTraverse _ (rexSons rex)
+          & (r k)
+          | readQuasiTree readVal readExp r err k
+    | ok | rexSetHeir heir | rexSetSons sons rex
+
+quasiExpected={Expected something like: `rex}
+
+= (readQuasiQuotedRex readVal readExp rex err ok)
+@ rune | rexRune rex
+@ kids | rexKids rex
+@ tree | fst kids
+| If (Or (Ne {`} rune) (Ne 1 | Sz kids))
+    | err rex quasiExpected
+| readQuasiTree readVal readExp tree err ok
+
+= (splicedE rex)
+@ sons | rexSons rex
+@ heir | rexHeir rex
+@ rune | rexRune rex
+@ text | rexText rex
+@ cnsr | Hd rex
+| If (rexIsEmbd rex)
+    | ecase (rexEmbd rex)
+        (l & appE (cnsE EMBD, l))
+        (r & r)
+| If (rexIsLeaf rex)
+    | Ifz heir | cnsE (cnsr ##rex rexText-rex 0)
+    | appE (cnsE (cnsr ##rex rexText-rex), splicedE heir)
+| else
+    | appE
+   ++ cnsE (cnsr ##rex rexRune-rex)
+   ++ rowE (map splicedE sons)
+   ++ Ifz heir (cnsE 0) (splicedE heir)
+
+= ({`} st rex)
+@ err (sireErr st)
+@ readVal (rex err ok & ok (LEFT rex))
+@ readExp (rex err ok & ok (RIGHT rex))
+: quoted < readQuasiQuotedRex readVal readExp rex err
+| 0 st (splicedE quoted)
+
+;;; Minimal Pretty Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; A printer in the vein of Wadler's "A Pretty Printer", except there is no
+; generic flatten operation. This is custom built to be a backend for a Rex
+; and Plan printers and is not meant to be a full implementation.
+# simpledata PDoc
+- PEMPTY
+- PCHAR c/Nat
+- PTEXT len/Nat Nat
+- PLINE
+- PCAT PDoc PDoc
+- PDENT PDoc
+- PCHOICE PDoc PDoc
+;; Handle the indentation of the second document and use it to inform the
+;; indentation of the first.
+- PBACKSTEP indent/Nat PDoc PDoc
+
+;> Nat > PDoc
+= (pdocChar c)
+| If (c == newlineChar) PLINE
+| PCHAR c
+
+;> Nat > PDoc
+= (pdocText t)
+| If (t == 0) PEMPTY
+| PTEXT (Bytes t) t
+
+= (**pdocEnclose l r x)
+| PCAT l
+| PCAT x r
+
+= pdocSquotes  | pdocEnclose (PCHAR {'}) (PCHAR {'})
+= pdocDquotes  | pdocEnclose (PCHAR {"}) (PCHAR {"})
+= pdocParens   | pdocEnclose (PCHAR "(") (PCHAR ")")
+= pdocAngles   | pdocEnclose (PCHAR "<") (PCHAR ">")
+= pdocCurlies  | pdocEnclose (PCHAR "{") (PCHAR "}")
+= pdocBrackets | pdocEnclose (PCHAR "[") (PCHAR "]")
+= pdocSpace    | PCHAR { }
+
+= (pdocSpaceOrLine x y)
+| PCAT x
+| PCHOICE
+    | PCAT pdocSpace y
+| PCAT PLINE y
+
+= (pdocBackstep x y)
+| PBACKSTEP 4 (PCAT PLINE x) y
+
+= (pdocIntersperseFun fun row)
+@ l | Dec | Sz row
+^ _ 0
+? (go i)
+| If (i == l) (Ix i row)
+| fun (Ix i row)
+| go (Inc i)
+
+= (pdocIntersperse sep row)
+^ pdocIntersperseFun _ row
+& (x y)
+| PCAT x
+| PCAT sep y
+
+= (pdocSpaceSep row)
+| pdocIntersperse pdocSpace row
+
+= (pdocIntersperseFunList fun list)
+| lcase list PEMPTY
+? (go x xs)
+: y ys < lcase xs x
+| fun x
+| go y ys
+
+; Rendered Document Representation
+# simpledata SDoc
+- SEMPTY
+- SCHAR c/Nat SDoc
+- STEXT len/Nat txt/Nat SDoc
+- SLINE indent/Nat SDoc
+
+# simpledata DocList
+- DLNIL
+- DLCONS i/Nat d/PDoc ds/DocList
+- DLSCONS i/Nat d/PDoc bs/Nat sc/SDoc
+
+; > Nat > SDoc > Nat
+= (sdocFits w doc)
+| Ifz w 0
+# simplecase doc 1
+- SCHAR c x
+    @ !dw | Dec w
+    | sdocFits dw x
+- STEXT len txt x
+    @ !sw | Sub w len
+    | sdocFits sw x
+
+= (pdocRenderNicest w n k xr yr)
+@ x      | snd xr
+@ !width | Sub w k
+| If (sdocFits width x) xr
+yr
+
+; > Nat > PDoc > SDoc
+= (pdocRenderSDoc w x)
+| snd
+^ _ 0 0 | DLCONS 0 x DLNIL
+? (best n k xs)
+# simplecase xs [0 SEMPTY] ; DLNIL case default
+- DLCONS i d ds
+    # simplecase d (best n k ds) ; PEMPTY case default
+    - PCHAR c
+        @ !kp | Inc k
+        @ [bs rest] | best n kp ds
+        [bs (SCHAR c rest)]
+    - PTEXT l s
+        @ !kp | Add k l
+        @ [bs rest] | best n kp ds
+        [bs (STEXT l s rest)]
+    - PLINE
+        @ [bs rest] | best i i ds
+        [bs (SLINE i rest)]
+    - PCAT x y
+        | best n k (DLCONS i x (DLCONS i y ds))
+    - PDENT x
+        | best n k (DLCONS k x ds)
+    - PCHOICE x y
+        | pdocRenderNicest w n k
+              | best n k (DLCONS i x ds)
+          | best n k (DLCONS i y ds)
+    - PBACKSTEP b x y
+        @ [backstep ylist] | best n k (DLCONS i y ds)
+        @ !ip | (Add (Add i backstep) b)
+        @ [_ xlist] | best n k (DLSCONS ip x backstep ylist)
+        [(Add backstep b) xlist]
+- DLSCONS i d bs ss
+    # simplecase d [bs ss] ; PEMPTY case default
+    - PCHAR c
+        @ !kp | Inc k
+        [bs (SCHAR c ss)]
+    - PTEXT l s
+        @ !kp | Add k l
+        [bs (STEXT l s ss)]
+    - PLINE
+        [bs (SLINE i ss)]
+    - PCAT x y
+        | best n k (DLCONS i x (DLSCONS i y bs ss))
+    - PDENT x
+        | best n k (DLSCONS k x bs ss)
+    - PCHOICE x y
+        | pdocRenderNicest w n k
+              | best n k (DLSCONS i x bs ss)
+          | best n k (DLSCONS i y bs ss)
+    - PBACKSTEP b x y
+        @ [backstep ylist] | best n k (DLSCONS i y bs ss)
+        @ !ip | (Add (Add i backstep) b)
+        @ [_ xlist] | best n k (DLSCONS ip x backstep ylist)
+        [(Add backstep b) xlist]
+
+= (pdocIndentation n)
+| Ifz n 0
+| strCat
+| Rep 0 spaceChar n
+
+( {}   =?= pdocIndentation 0)
+( { }  =?= pdocIndentation 1)
+( {  } =?= pdocIndentation 2)
+
+= (sdocToString s)
+| strCat
+| array
+^ _ s
+? (go d)
+# simplecase d NIL ; SEMPTY default case
+- SCHAR c x
+    | CONS c | go x
+- STEXT _ s x
+    | CONS s | go x
+- SLINE i x
+    | CONS newlineChar
+    | CONS pdocIndentation-i
+    | go x
+
+=?=  | sdocToString | STEXT (Sz "one") "one" | SLINE 2 | STEXT (Sz "two") "two"
+  } one
+  }   two
+
+;;; Rex Pretty Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (rexHeirRequiresParens heir)
+@ style | rexStyle heir
+| Or (style == {WORD}) (style == {PREF})
+
+= (rexOpenMaxRuneSize sz r)
+@ cur | max sz | Bytes | rexRune r
+| Ifz rexHeir-r cur
+| If (rexStyle-r != {OPEN}) cur
+| rexOpenMaxRuneSize cur rexHeir-r
+
+= (rexIsOpen rex)
+| Eq {OPEN} rexStyle-rex
+
+= (rexIsClosed rex)
+| Ne {OPEN} rexStyle-rex
+
+# simpledata SonState
+- SSPREFIX PDoc
+- SSOPEN Rex PDoc
+- SSINNER PDoc
+- SSSUFFIX PDoc
+
+; TODO: Copied from 02_post; don't know where this goes in the new world.
+= (findIdxMany f row)
+^ lfoldr _ NIL (lindexed | stream row)
+& (idxVal rest)
+| Ifz (f | snd idxVal) rest
+| CONS (fst idxVal) rest
+
+
+; > (> Rex > PDoc) > Row Rex > List SonState
+= (mapRexToSons rexDoc sons)
+@ opens | findIdxMany rexIsOpen sons
+| lcase opens
+    | lmap x&(SSPREFIX | rexDoc x) | stream sons
+& (first _)
+@ last | llastUnsafe opens
+^ lmap _ | lindexed | stream sons
+& [i v]
+| If (Lt i first)  | SSPREFIX | rexDoc v
+| If (Gt i last)   | SSSUFFIX | rexDoc v
+| If (rexIsOpen v) | SSOPEN v | rexDoc v
+| SSINNER | rexDoc v
+
+= (sonIsInnerState s)
+# simplecase s 0
+- SSINNER _
+    1
+
+= (sonFromInnerState s)
+# simplecase s | Die "sonFromInnerState: invalid"
+- SSINNER x
+    x
+
+;> SonState > PDoc
+= (sonStateToPDoc ss)
+# simplecase ss | Die "Invalid sonsStateToPDoc"
+- SSPREFIX r
+    r
+- SSOPEN _ o
+    o
+- SSINNER i
+    i
+- SSSUFFIX s
+    s
+
+; A block is inlinable if there's no heir, all items but the last are closed,
+; and the last item is closed or inlineable.
+= (rexIsInlineableOpen o)
+@ sons  | rexSons o
+@ nm1   | Dec | Sz sons
+@ heads | take nm1 sons
+@ last  | Ix nm1 sons
+| Ifz rexHeir-o
+    | And (all rexIsClosed heads)
+    | Or rexIsClosed-last rexIsInlineableOpen-last
+0
+
+=?= 1 (rexIsInlineableOpen `(five six))
+
+=?=   1
+  | rexIsInlineableOpen
+  ` | five | six seven
+
+=?= 1 (rexIsInlineableOpen `(five (six seven)))
+
+=?=   0
+  | rexIsInlineableOpen
+  ` | five
+            | six
+        | seven
+      eight
+
+=?=   0
+  | rexIsInlineableOpen
+  ` | five
+    | six
+
+=?=   0
+  | rexIsInlineableOpen
+  ` @ item (Unpin o)
+    | doit item
+
+; > List SonState > PDoc
+= (sonStateRenderMappedSons sons)
+@ len | llen sons
+^ _ sons
+? (go sons)
+: x xs < lcase sons PEMPTY
+| lcase xs
+    # simplecase x (sonStateToPDoc x)
+    - SSOPEN _ _
+        ; if we're the final open, we have to add a newline.
+        | PCAT PLINE | sonStateToPDoc x
+& (y ys)
+# simplecase x (Die ["Unexpected value in sonStateRenderMappedSons loop" x])
+- SSPREFIX r
+    # simplecase y (Die ["Unexpected value after SSPREFIX" y])
+    - SSPREFIX _
+        | pdocSpaceOrLine r | go xs
+    - SSOPEN openRex openDoc
+        | PCAT r
+        | If | rexIsInlineableOpen openRex
+            | PCHOICE
+                | PCAT pdocSpace
+                | PCAT openDoc
+                | go ys
+            | go xs
+        | go xs
+- SSOPEN _ o
+    # simplecase y (Die ["Unexpected value after SSOPEN" y])
+    - SSOPEN _ _
+        | pdocBackstep o | go xs
+    - SSINNER _
+        | pdocBackstep o | go xs
+    - SSSUFFIX _
+        | pdocBackstep o
+        | PCAT PLINE
+        | go xs
+- SSINNER i
+    | lcase | ldropwhile sonIsInnerState xs
+        | Die ["Unexepected lack of open in inner handling"]
+    & (open rest)
+    @ inners
+        | pdocIntersperseFunList pdocSpaceOrLine
+        | CONS i | lmap sonFromInnerState | ltakewhile sonIsInnerState xs
+    @ content
+        | PCAT inners
+        | PCAT PLINE
+        | sonStateToPDoc open
+    | lcase rest
+        ; if the next open was the last item, return this as the final option
+        ; un-backstepped.
+        | PCAT PLINE content
+    & (next _)
+    # simplecase next (Die ["Unxpected prefix in inner state handling."])
+    - SSINNER _
+        | pdocBackstep content
+        | go rest
+    - SSOPEN _ _
+        | pdocBackstep content
+        | go rest
+    - SSSUFFIX _
+        ; we must add the final line between an open and a suffix.
+        | pdocBackstep content
+        | PCAT PLINE
+        | go rest
+- SSSUFFIX s
+    | pdocSpaceOrLine s | go xs
+
+;> (Rex > PDoc) > Rex > PDoc
+= (rexToplevelOpen rexDoc sz r)
+@ rune | rexRune r
+@ runeLen | Bytes rune
+@ runedent | Sub sz runeLen
+@ open
+    @ content
+        | PCAT pdocText-rune
+        | PCAT pdocSpace
+        | PDENT
+        | sonStateRenderMappedSons
+        | mapRexToSons rexDoc rexSons-r
+    | Ifz runedent content
+    | PCAT (pdocText | pdocIndentation runedent)
+    | PDENT content
+@ heir | rexHeir r
+| Ifz heir open
+| PCAT open
+| PCAT PLINE rexDoc-heir
+
+;; TODO: Copied from 02_post.sire. Don't know where to place this.
+;; BitSlice -> Cut
+
+= (byteSlice off wid n)          | Cut (Mul 8 off) (Mul 8 wid) n
+
+= (strLinesList str)
+@ wid | Sz str
+^ (_ 0)
+? (go off)
+| If (Ge off wid) NIL
+@ end (strElemIndexOff newlineChar off str)
+| CONS (byteSlice off (Sub end off) str)
+| go (Inc end)
+
+(strLines str)=(fill 0 | strLinesList str)
+
+; > Rex > PDoc
+= (rexDoc r)
+@ heir  | rexHeir r
+@ psons | map rexDoc | rexSons r
+@ cRune | pdocText | rexRune r
+@ s     | rexStyle r
+| If (s == {TEXT})
+    ; TODO: detect quote needed and do that here.
+    @ quoted | pdocDquotes | pdocText | rexText r
+    | Ifz heir
+        quoted
+    | PCAT quoted rexDoc-heir
+| If (s == {WORD})
+    ; two words next to each other require the next one in ()
+    @ t | pdocText | rexText r
+    | Ifz heir
+         t
+    @ next
+        | If | rexHeirRequiresParens heir
+            | pdocParens | rexDoc heir
+        | rexDoc heir
+    | PCAT t next
+| If (s == {LINE})
+    @ item
+        | pdocIntersperse PLINE
+        ^ map _ | strLines rexText-r
+        & line
+        | PCAT (pdocText "} ")
+        | pdocText line
+    | Ifz heir
+        item
+    | PCAT item rexDoc-heir
+| If (s == {NEST})
+    @ item
+        @ rune | rexRune r
+        | If (rune == {|})
+            | pdocParens | pdocSpaceSep psons
+        | If (rune == {,})
+            | pdocBrackets | pdocSpaceSep psons
+        | pdocParens
+        | PCAT cRune
+        | PCAT pdocSpace
+        | pdocSpaceSep psons
+    | Ifz heir
+        item
+    | PCAT item rexDoc-heir
+| If (s == {INFX})
+    @ sep | pdocEnclose pdocSpace pdocSpace cRune
+    | PCAT
+        | pdocParens
+        | pdocIntersperse sep psons
+    | rexDoc-heir
+| If (s == {SHUT})
+    @ shut | pdocIntersperse cRune psons
+    | Ifz heir
+        shut
+    | PCAT shut rexDoc-heir
+| If (s == {PREF})
+    | PCAT cRune
+    @ pref | pdocSpaceSep psons
+    | Ifz heir
+        pref
+    | PCAT pref rexDoc-heir
+| If (s == {OPEN})
+    @ sz | rexOpenMaxRuneSize 0 r
+    | rexToplevelOpen rexDoc sz r
+PEMPTY
+
+= (rexToString w r)
+| sdocToString
+| pdocRenderSDoc w
+| rexDoc r
+
+( {"foo"bar}    =?= rexToString 80 `{foo}bar )
+( {foo"bar"}    =?= rexToString 80 `foo"bar" )
+( {"foo""bar"}  =?= rexToString 80 `{foo}{bar} )
+
+( {foo(bar)}    =?= rexToString 80 `foo(bar) )
+( {foo(#bar)}   =?= rexToString 80 `foo(#bar) )
+
+( {(a b c)}     =?= rexToString 80 `(a b c) )
+( {[1 2 3]}     =?= rexToString 80 `[1 2 3] )
+
+( {(+ 3 4)}     =?= rexToString 80 `(+ 3 4) )
+
+( {(x + y)}     =?= rexToString 80 `(x + y) )
+( {(x + y + z)} =?= rexToString 80 `(x + y + z) )
+
+( {x+y}         =?= rexToString 80 `x+y )
+( {x+y+z}       =?= rexToString 80 `x+y+z )
+( {x-y+z}       =?= rexToString 80 `x-y+z )
+
+; TODO: The parser doesn't like '%foo or '$foo. Consider PREF untested.
+; ( {%foo}        =?= rexToString 80 `%foo )
+
+( {(foo turtles)(+ pizza)} =?= | rexToString 80 `(foo turtles)(+ pizza) )
+
+= fifteenTest
+` | one
+    two
+    (three four)
+            | five six
+        (seven eight)
+        (nine ten)
+        | eleven twelve
+    thirteen
+    fourteen
+    fifteen
+
+; restricted to 25 cols
+=?=    | rexToString 25 fifteenTest
+  } | one two (three four)
+  }           | five six
+  }       (seven eight)
+  }       (nine ten)
+  }       | eleven twelve
+  }   thirteen fourteen
+  }   fifteen
+
+; restricted to 50 cols
+=?=    | rexToString 50 fifteenTest
+  } | one two (three four) | five six
+  }       (seven eight) (nine ten)
+  }       | eleven twelve
+  }   thirteen fourteen fifteen
+
+; test final item being in open form
+=?=    | rexToString 80
+       ` | foo
+                   + a b c
+               (d e) f
+           + g h i
+  } | foo + a b c
+  }   (d e) f
+  }   + g h i
+
+; test hier of open
+=?=    | rexToString 80
+       ` | foo bar
+         (baz quo)
+  } | foo bar
+  } (baz quo)
+
+; test indent items under inlined top line.
+;
+; todo: lots of real code tries to inline `@ item` onto the `@ p` line
+; and align `| doit` with `@ item`, as in the input. figure out if we can
+; reliably detect that case.
+=?=    | rexToString 80
+       ` @ p @ item (Unpin o)
+             | doit item
+         | other p
+  } @ p
+  }   @ item (Unpin o)
+  }   | doit item
+  } | other p
+
+;;; PLAN Pretty Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; > Any > Row Any
+= (collectApps x)
+@ h | Init x
+@ t | Last x
+| If IsApp-h
+    | snoc collectApps-h t
+[h t]
+
+=?=   | collectApps ((2 3) 0)
+  [2 3 0]
+
+=?=   | collectApps (((1 2) 3) 2)
+  [1 2 3 2]
+
+# simpledata PlanTree
+- PTAPP (Row PlanTree)
+- PTLAW name/PlanTree args/PlanTree body/PlanTree
+- PTPINITEM item/PlanTree
+- PTTEXT str/PDoc
+
+; > BST Nat Any > Any > PlanTree
+= (planToTree elide top)
+^ _ top
+? (go x)
+| If IsApp-x
+    | PTAPP | map (planToTree elide) | collectApps x
+| If IsPin-x
+    @ i | Unpin x
+    | If (And IsLaw-i (bstHas Name-i elide))
+        | PTTEXT | pdocText Name-i
+    | PTPINITEM | go Unpin-x
+| If IsLaw-x
+    | PTLAW (go Name-x) (go Arity-x) (go Body-x)
+| PTTEXT
+| If (strIsPrintable-x)
+    | pdocText x
+| pdocText showNat-x
+
+; > BST Nat Any > Any > PDoc
+= (planDoc elide top)
+^ _ 0 | planToTree elide top
+? (go oneLine x)
+# simplecase x PEMPTY
+- PTAPP apps
+    | pdocParens
+    | PDENT
+    @ onOneLine
+        | pdocIntersperse pdocSpace
+        | map (go 1) apps
+    @ onMultipleLines
+        | pdocIntersperse PLINE
+        | map (go 0) apps
+    | If oneLine onOneLine
+    | PCHOICE onOneLine onMultipleLines
+- PTLAW name args body
+    | pdocCurlies
+    | PDENT
+    | PCAT (go oneLine name)
+    | PCAT pdocSpace
+    | PCAT (go oneLine args)
+    | PCAT pdocSpace
+    | go oneLine body
+- PTPINITEM item
+    | pdocAngles | go oneLine item
+- PTTEXT str
+    str
+
+= (simplePlanToString w r)
+| sdocToString
+| pdocRenderSDoc w
+| planDoc bstEmpty r
+
+=?=   | simplePlanToString 80 Inc
+  {<2>}
+
+=?=   | simplePlanToString 80 Force
+  } <{Force 1 (0 (0 (<1> 0 1) (0 (0 0) 1)) (0 0))}>
+
+; > Any > BST Nat Any > BST Nat Any
+= (collectPinNames p bst)
+| If IsPin-p
+    @ item | Unpin p
+    | If IsLaw-item
+        @ name | Name item
+        | If (bstHas name bst) bst
+        | collectPinNames Body-item
+        | Ifz name bst
+        | bstIns name p bst
+    | collectPinNames item bst
+| If IsLaw-p
+    | collectPinNames Body-p bst
+| If IsApp-p
+    @ at | collectPinNames Init-p bst
+    | collectPinNames Last-p at
+bst
+
+(isToplevelPin p)=(If IsPin-p (IsLaw Unpin-p) 0)
+
+= (bstToPairList bst)
+| fill 0 | lmap (kv)&(fst kv, snd kv) bstWalk-bst
+
+; > Any > PDoc
+= (multipinPlanDoc p)
+@ startPoint | If isToplevelPin-p Unpin-p p
+@ collected  | collectPinNames startPoint bstEmpty
+| If bstIsEmpty-collected
+    | planDoc collected p
+| PCAT
+    | PCAT (pdocText "^ ")
+    | PDENT
+    | planDoc collected p
+| PCAT PLINE
+| pdocIntersperse PLINE
+^ map _ | bstToPairs collected
+& [k v]
+| PCAT (pdocText "* ")
+| planDoc (bstDel k collected) v
+
+= (planToString w r)
+| sdocToString
+| pdocRenderSDoc w
+| multipinPlanDoc r
+
+= (shallowPlanDoc p)
+@ startPoint | If isToplevelPin-p Unpin-p p
+@ collected | collectPinNames startPoint bstEmpty
+| planDoc collected p
+
+= (shallowPlanToString w r)
+| sdocToString
+| pdocRenderSDoc w
+| shallowPlanDoc r
+
+=?= (shallowPlanToString 40 planToString)
+  } <{planToString 2 (0
+  }                   sdocToString
+  }                   (0
+  }                    (0 pdocRenderSDoc 1)
+  }                    (0
+  }                     multipinPlanDoc
+  }                     2)))}>
+
+=?= (shallowPlanToString 40 "!#$%&*+,-./:<=>?@\^`|~'")
+  {!#$%&*+,-./:<=>?@\^`|~'}
+
+" Unjetted Generic Ordering Routines ------------------------------------------"
+
+= (ord x y) | If (Eq 1 x) y x
+
+(ord 1 0 =?= 0)(ord 1 1 =?= 1)(ord 1 2 =?= 2)
+(ord 0 0 =?= 0)(ord 0 1 =?= 0)(ord 0 2 =?= 0)
+(ord 2 0 =?= 2)(ord 2 1 =?= 2)(ord 2 2 =?= 2)
+
+= (rowCmp planCmp x y)
+@ xsz (Sz x)
+@ ysz (Sz y)
+| ord (Compare xsz ysz)
+| ord (planCmp Hd-x Hd-y)
+^ 0
+? (loop i)
+| If (Ge i xsz) 1
+| ord (planCmp (Ix i x) (Ix i y))
+| loop Inc-i
+
+= (lawCmp planCmp x y)
+| ord (Compare Name-x Name-y)
+| ord (Compare Arity-x Arity-y)
+| planCmp Body-x Body-y
+
+= (pinCmp planCmp x y)
+| planCmp Unpin-x Unpin-y
+
+= (planCmp x y)
+@ xt Type-x
+@ yt Type-y
+| ord (Compare xt yt)
+@ natCase | Compare x y
+@ pinCase | pinCmp planCmp x y
+@ appCase | rowCmp planCmp x y
+@ lawCase | lawCmp planCmp x y
+| Ix xt (0 natCase pinCase lawCase appCase)
+
+(pinEq eql x y)=(eql Unpin-x Unpin-y)
+
+= (lawEq eql x y)
+| And (Eq Name-x Name-y)
+| And (Eq Arity-x Arity-y)
+| eql Body-x Body-y
+
+= (rowEq eql x y)
+@ xsz Sz-x
+@ ysz Sz-y
+| And (Eq xsz ysz)
+| And (eql Hd-x Hd-y)
+^ _ 0
+? (loop i)
+| Or (Ge i xsz)
+| And (eql (Ix i x) (Ix i y))
+| loop (Inc i)
+
+= (planEql x y)
+@ xt Type-x
+@ yt Type-y
+| And (Eq xt yt)
+@ natCase | Eq x y
+@ pinCase | pinEq planEql x y
+@ appCase | rowEq planEql x y
+@ lawCase | lawEq planEql x y
+| Ix xt (0 natCase pinCase lawCase appCase)
+
+= (planNeq x y) | Nil (planEql x y)
+= (planLth x y) | Nil (planCmp x y)
+= (planGth x y) | Nil (planCmp y x)
+= (planGte x y) | ToBit (planCmp x y)
+= (planLte x y) | ToBit (planCmp y x)
+= (planMin x y) | Ifz (planCmp x y) x y
+= (planMax x y) | If  (planCmp x y) x y
+
+(planNeq 3   3   =?= 0)
+(planNeq 3   4   =?= 1)
+(planNeq 3-4 3-3 =?= 1)
+(planNeq 3-3 3-3 =?= 0)
+
+(1 =?= planLth 3 4)(0 =?= planLth 4 4)(0 =?= planLth 5 4)
+(0 =?= planGth 3 4)(0 =?= planGth 4 4)(1 =?= planGth 5 4)
+(1 =?= planLte 3 4)(1 =?= planLte 4 4)(0 =?= planLte 5 4)
+(0 =?= planGte 3 4)(1 =?= planGte 4 4)(1 =?= planGte 5 4)
+(4 =?= planMax 3 4)(4 =?= planMax 4 3)
+(3 =?= planMin 3 4)(3 =?= planMin 4 3)
+
+(4 =?= Unpin (planMax Pin-3 Pin-4))
+(3 =?= Unpin (planMin Pin-3 Pin-4))
+
+
+;;; Rex Parser Types ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+* # struct (Span a) | SPAN spanLin/a spanOff/Nat spanEnd/Nat spanVal/a
+* # struct Line     | LN lineFil/Str lineNum/Nat lineTxt/Str
+
+# simpledata (Lexi a)
+- LRUNE
+- LWORD
+- LWYTE
+- LSEMI
+- LTEXT
+- LFAIL
+- LTERM
+- LLINE multi/(List (Span ()))
+- LNEST isBracket/Bit xs:a
+
+= (**getLexiLine x fb ok)
+| If (Hd x != "LLINE") fb
+| **ok (fst x)
+
+;;; Basic Lexing + Nesting ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (lexMany lexOne ln off ctx txt)
+@ lexeme@[_ off end tok] (lexOne ln off ctx txt)
+^ (lexeme :: _)
+| If (tok == LTERM) NIL
+| lexMany lexOne ln end ctx txt
+
+= (lexNest lexMany lexOne ln typ ctx off txt)
+@ ts  | lexMany lexOne ln Inc-off ctx txt
+@ [_ _ end _] | llastUnsafe ts
+| (ln, off, end, **LNEST typ ts)
+
+; ASCII is [0-9]..[A..Z]..[_]..[a-z]
+= (wordy c) ; Char > Bit
+^ (Ge c "0" && (Le c "z" && _))
+| (Ge c "a" || (Le c "9" || (Eq "_" c || (Ge c "A" && Le c "Z"))))
+
+runeChars="!#$%&*+,-./:<=>?@\^`|~'" ;; Row Char
+
+(runic c)=(strHas c runeChars) ; Char > Bit
+
+= (eatCurly txt o d) ; Str > Nat > Nat > Nat
+| Ifz d o
+@ next (eatCurly txt Inc-o)
+# simpleswitch (Load8 o txt) (next d)
+- 0   | o
+- "{" | next Inc-d
+- "}" | next Dec-d
+
+= (eatCord txt o) ; Str > Nat > Nat > Nat
+^ min (Bytes txt) Inc-_        ; return Bytes if unterminated
+| strElemIndexOff 34 Inc-o txt ; 34 = double quote
+
+= (lexUgly ln off txt) ; Line > Nat > Char > Str > Str > Lexeme
+@ start   | Inc-off
+@ delim   | Load8 start txt
+@ lineStr | [ln off Bytes-txt LLINE-NIL]
+@ noMatch
+    ^ [ln off _ LTEXT]
+    ^ min (Bytes txt) Inc-_     ; return Bytes if unterminated
+    | strElemIndexOff delim Inc-start txt
+# simpleswitch delim noMatch
+- 0   | lineStr
+- " " | lineStr
+
+= (lexOne ln o ctx txt)
+@ eat | strFindIndexOff
+@ c   | Load8 o txt
+^ # simpleswitch c _
+  - "("       | lexNest lexMany lexOne ln 0 ")" o txt
+  - "["       | lexNest lexMany lexOne ln 1  "]" o txt
+  - "}"       | lexUgly ln o txt
+  - "{"       | (ln, o, eatCurly txt Inc-o 1,     LTEXT)
+  - 0         | (ln, o, Bytes txt,                LTERM)
+  - ";"       | (ln, o, Bytes txt,                LSEMI)
+  - 34        | (ln, o, eatCord txt o,            LTEXT) ; 34 = double quote
+  - " "       | (ln, o, eat Ne-32          o txt, LWYTE)
+| If wordy-c | (ln, o, eat c&(not wordy-c) o txt, LWORD)
+| If runic-c | (ln, o, eat c&(not runic-c) o txt, LRUNE)
+| If ctx==c  | (ln, o, Inc o,                     LTERM)
+| else       | (ln, o, Inc o,                     LFAIL)
+
+(lexLine ln)=(lexMany lexOne ln 0 0 (lineTxt ln))
+
+;;; Merge Multi-Line Strings ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (multiLine topLs) ; List Lexeme > List Lexeme
+: a@SPAN[aLin aOff aEnd aTok] ls < lcase topLs NIL
+@ fb (a :: multiLine ls)
+: b@SPAN[____ bOff bEnd bTok] ls < lcase ls    fb
+: aExtra < **getLexiLine aTok fb
+| If (bTok != LTERM) fb
+@ onMatch
+    & (newTok more)
+    @ aTok | LLINE (spanValSet 0 newTok :: aExtra)
+    | multiLine (SPAN aLin aOff aEnd aTok)::more
+: c@SPAN[_ cOff cEnd cTok] ls < lcase ls fb
+# simplecase cTok fb
+- LLINE _ | If (aOff!=cOff) fb
+          | onMatch c ls
+- LWYTE   : d@SPAN[_ dOff dEnd dTok] ls < lcase ls fb
+          : _ < **getLexiLine dTok fb
+          | If (aOff!=dOff) fb
+          | onMatch d ls
+
+;;; Clump Juxtaposed Tokens ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (mkClump xs) ; Row Elem > Clump
+@ SPAN[lin off _   _] (fst xs)
+@ SPAN[_   _   end _] (Last xs)
+| (**SPAN lin off end xs)
+
+= (lexiIsSpace tok)  | has tok [LWYTE LSEMI LTERM] ; Lexi a > Bit
+= (elemIsSpace elem) | lexiIsSpace (spanVal elem)  ; Elem > Bit
+
+= (isEndOfCluster ls) ; List Elem > Bit
+: l ls < lcase ls 0
+| Or (elemIsSpace l)
+| And (spanVal l == LRUNE)
+: l ls < lcase ls 1
+| elemIsSpace l
+
+= (clumpLoop acc remain) ; List Elem > List Elem > List Clump
+: next more < lcase remain | Ifz acc NIL
+                           | lsing mkClump-(arrayRev acc)
+| If (Nil acc && elemIsSpace next)
+    | clumpLoop acc more
+| If (acc && isEndOfCluster remain)
+    | **CONS mkClump-(arrayRev acc)
+    | clumpLoop NIL remain
+| clumpLoop next::acc more
+
+= (clump lexemes) ; List Lexeme > Row Clump
+^ array | clumpLoop NIL | lmap _ lexemes
+& span@SPAN[l o e x]
+| **SPAN l o e
+| If (Hd x != "LNEST") x
+| **LNEST fst-x (clump snd-x)
+
+;;; Layout Engine (Understand Structure Implied by Indentation) ;;;;;;;;;;;;;;;;
+
+I=0 ;; data Item = I Str (List Tree) (Maybe Tree)0
+
+# simpledata Tree
+- TLEAF Clump
+- TNODE Str (Row Tree) (Maybe Tree)
+
+# simpledata (Frag a)
+- WOLF Str a
+- LAMB a
+
+(**getWolf frag fb onWolf)=(# simplecase frag fb)(- WOLF x y | **onWolf x y)
+
+(spanTxt s@SPAN[lin off end _])=(Load off (Sub end off) lineTxt-lin)
+
+= (spanFrag s@SPAN[lin off end val]) ; Span (Lexi a) > Frag (Span | Lexi a)
+| If (val != LRUNE) (LAMB s)
+| WOLF (spanTxt s) s
+
+= (clumpFrag c@SPAN[_ off _ es]) ; Clump > (Nat, Frag Clump)
+@ lamb | (off, LAMB c)
+| If (Sz es != 1) lamb
+: rune _ < getWolf (spanFrag fst-es) lamb
+(Dec (Add off Bytes-rune), WOLF rune c)
+
+= (fTree frag) ; Frag Clump > Tree
+# simplecase frag 0
+- LAMB c   | TLEAF c
+- WOLF b _ | TNODE b [] NONE
+
+= (iTree item@I[t x k]) ; Item > Tree
+| Ifz t ("invalid item" item)
+| TNODE t (arrayRev x) k
+
+= (merge [rp r] [ip i@I[t cs mHeir]]) ; (Nat, Tree) > (Nat, Item) > (Nat, Item)
+: k < ocase mHeir | If (rp == ip) | ( ip, I t cs    SOME-r )
+                  | else          | ( ip, I t r::cs NONE   )
+| (ip, I t (k::cs) (SOME r))
+
+(pairMap f [x y])=[x (f y)]
+
+= (close pos stk) ; Nat > List (Nat, Item) > List (Nat, Item)
+: i more < lcase stk NIL
+| If (Ge pos | fst i) stk
+: j k < lcase more | Die "indent too small.  Bug in block splitter"
+| close pos (merge (pairMap iTree i) j :: k)
+
+; List (Nat, Item) > (Nat, Frag Clump) > List (Nat, Item)
+= (pushOnto stk (fragPos, frag))
+@ stk@[i is] (close fragPos stk)
+: r _ < getWolf frag (merge (fragPos, fTree frag) i :: is)
+| (fragPos, I r NIL NONE)::stk
+
+= (pushAll pf fs)          | lfoldl pushOnto (lsing pf) fs
+= (forceMerge a b)         | merge (pairMap iTree a) b
+= (nonemptyFoldl f [x xs]) | lfoldl f x xs
+
+= (layout frags) ; List (Nat, Frag Clump) > List Tree
+: f@[pos frag] fs < lcase frags NIL
+# simplecase frag 0
+- LAMB _   | (fTree frag :: layout fs)
+- WOLF r _ ^ lsing | iTree | snd | nonemptyFoldl forceMerge _
+           | pushAll (pos, I r NIL NONE) fs
+
+= (layout frags) ; List (Nat, Frag Clump) > List Tree
+: f@[pos frag] fs < lcase frags NIL
+: r _             < getWolf frag (fTree frag :: layout fs)
+^ lsing | iTree | snd | nonemptyFoldl forceMerge _
+| pushAll (pos, I r NIL NONE) fs
+
+;;; Splitting Blocks ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# simpledata BlockBuffer
+- WOODS
+- TEXTY lines/(List | List Lexeme) depth/Nat
+- BLOCK lines/(List | List Lexeme) depth/Nat prevDepth/Nat
+
+# simpledata LineCat
+- CVOID
+- CNOTE offset/Nat
+- COPEN indent/Nat offset/Nat
+- CQUOT offset/Nat
+- CSING offset/Nat
+
+# struct BlockState | BS bsPath/Str bsLine/Nat bsBuf/BlockBuffer
+
+= (lineCat lexemes) ; List Lexeme > LineCat
+: SPAN[_ lOff lEnd x] ls < lcase lexemes CVOID
+# simplecase x (CSING lOff)
+- LTERM   | CVOID
+- LSEMI   | CNOTE lOff
+- LLINE _ | CQUOT lOff
+- LWYTE   | lineCat ls
+- LRUNE   : SPAN[_ _ _ yTok] ys < lcase ls (CSING lOff)
+          | If lexiIsSpace-yTok (COPEN Dec-lEnd lOff)
+          | CSING lOff
+
+= (blockStep bs@BS[fn lno st] mInp)
+    @ eofCase  | (BS fn lno WOODS, (Ne WOODS st && lsing (lrev fst-st)))
+    : l        < ocase mInp eofCase
+    @ lc       | lineCat l
+    @ ok       | (buf out)&(BS fn (Inc lno) buf, out)
+    @ break    & ls @ (st2, out) (blockStep (BS fn lno WOODS) mInp)
+                    | (st2, (lrev ls :: out))
+
+    @ (bd, ad) # simplecase lc (###"bad LineCat" lc)
+               - CVOID     | [0 0]
+               - CNOTE o   | [o o]
+               - COPEN i o | [i o]
+               - CQUOT o   | [o o]
+               - CSING o   | [o o]
+
+    # simplecase st (###"bad block buffer" st)
+
+    - WOODS
+        # simplecase lc (###"bad LineCat" lc)
+        - CVOID     | ok WOODS NIL ; void
+        - CNOTE _   | ok WOODS NIL ; note
+        - COPEN _ _ | ok (BLOCK lsing-l bd Inc-ad) NIL
+        - CQUOT _   | ok (TEXTY lsing-l bd) NIL
+        - CSING _   | ok WOODS (lsing (lsing l))
+
+    - TEXTY ls deep
+        # simplecase lc (break ls)
+        - CQUOT d | If d!=deep break-ls
+                  | ok (**TEXTY l::ls deep) NIL
+
+    - BLOCK ls deep prev
+        | If (planEql CVOID lc)
+            | Ifz prev (break ls)
+            | ok (BLOCK ls deep 0) NIL
+         | If (Nil prev && Nil ad)
+             | break ls
+         | If (Lt bd deep) (break ls)
+         | ok (BLOCK (l::ls) deep (Inc ad)) NIL
+
+; BlockState > Maybe Str > (BlockState, List (Nat, List Tree))
+= (treeStep st@BS[fil num _] mInp)
+@ er@(st2, out)
+    | blockStep st
+    | omap mInp (byt & lexLine (**LN fil num byt))
+@ treeOut
+    : blockLines < lturn out
+    @ blockLexes (lcat blockLines)
+    @ [SPAN[LN[_ firstLineNumber _] _ _ _] _] blockLexes
+   ++ firstLineNumber
+   ++ ^ layout | lmap clumpFrag | stream | clump _
+      | multiLine (lcat blockLines)
+| (st2, treeOut)
+
+;;; Policy ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# simpledata (SubLayout a)
+- SEQUE (List a)
+- PREFX Str (List (Frag a))
+- INFIX (NonEmpty a) Str (SubLayout a)
+
+= (lambs fs) ; List (Frag a) > (Maybe (Str, List (Frag a)), (List a))
+: f more < lcase fs (NONE, NIL)
+# simplecase f 0
+- LAMB x   | pairMap (CONS x) (lambs more)
+- WOLF r _ | (SOME [r more], NIL)
+
+= (subLayout frags) ; List (Frag a) > SubLayout a
+: f fs < lcase frags (SEQUE NIL)
+# simplecase f 0
+- WOLF r _ | PREFX r fs
+- LAMB x   @ [rest hed] (lambs fs)
+           : (ryn, more) < ocase rest (SEQUE x::hed)
+           | INFIX [x hed] ryn (subLayout more)
+
+= (spanQuotedStr span)
+@ txt (spanTxt span)
+| If (Load8 0 txt == "}") | Load 2 (Sub Bytes-txt 3) txt
+| else                    | Load 1 (Sub Bytes-txt 2) txt
+
+= (lineRex acc spans)
+: span spans < lcase spans acc
+@ txt | dropBytes 2 | spanTxt span
+| lineRex (LINE txt acc) spans
+
+= (onlyLambs clumps) ; Row Clump > Row Clump
+^ foldl _ 0 clumps
+& (acc clump)
+# simplecase (snd | clumpFrag clump) 0
+- LAMB x   | acc x
+- WOLF _ _ | acc
+
+= (paraSeq clumpRex all@[c cs]) ; (Clump > Rex) > NonEmpty Clump > Rex
+| If (all && Nil cs) clumpRex-c
+^ NEST "|" _ 0
+| array (lmap clumpRex all)
+
+(mkInfix rune acc)=(INFX rune arrayRev-acc NONE)
+
+= (paraPrefix clumpRex rune frags) ; (Clump > Rex) > Str > List (Frag Clump)
+^ _ rune NIL frags
+? (go rune acc frags)
+: f fs < lcase frags (NEST rune (arrayRev acc) NONE)
+# simplecase f 0
+- LAMB cl   | go rune (clumpRex cl  :: acc) fs
+- WOLF rx _ | go rune (go rx NIL fs :: acc) NIL
+
+= (paraInfix parenPolicy clumpRex rune initial slay)
+^ _ rune lsing-initial slay
+? (go rune acc slay)
+# simplecase slay 0
+- SEQUE _       | mkInfix rune (parenPolicy clumpRex slay :: acc)
+- PREFX r xs    | mkInfix rune (paraPrefix clumpRex r xs :: acc)
+- INFIX es r xs @ rx (paraSeq clumpRex es)
+                | If r==rune | go rune rx::acc xs
+                | else       | go r lsing-(mkInfix rune rx::acc) xs
+
+= (parenPolicy clumpRex slay) ; (Clump > Rex) > SubLayout Clump > Rex
+# simplecase slay 0
+- SEQUE xs      | paraSeq clumpRex xs
+- PREFX r xs    | paraPrefix clumpRex r xs
+- INFIX es r xs | paraInfix parenPolicy clumpRex r (paraSeq clumpRex es) xs
+
+= (elemRex clumpRex e@SPAN[ln off end l]) ; Elem > Rex
+# simplecase l (##"elemRex case not handled challenge (impossible)" l)
+- LWORD    | WORD (spanTxt e) 0
+- LFAIL    | elemRex clumpRex (**SPAN ln off end LRUNE)
+- LRUNE    | NEST (spanTxt e) [] 0
+- LTEXT    | TEXT (spanQuotedStr e) 0
+- LLINE ts | lineRex 0 (lsnoc ts e)
+- LNEST brack xs | If brack (NEST "," (map clumpRex | onlyLambs xs) 0)
+                 ^ parenPolicy clumpRex (subLayout _)
+                 | lmap x&(snd | clumpFrag x) (stream xs)
+
+= (rexAddHeir rex c) ; Rex > Rex > Rex
+@ heir (rexHeir rex)
+| rexSetHeir (Ifz heir c | rexAddHeir heir c) rex
+
+= (heirSeq clumpRex wut@[x xs]) ; Any > (Elem, List Elem) > Rex
+| lfoldl rexAddHeir (elemRex clumpRex x)
+| lmap (elemRex clumpRex) xs
+
+(ifix rune acc)=(**SHUT rune (arrayRev acc) NONE) ; Str > List Rex > Rex
+
+; Str > List Rex > SubLayout Elem
+= (eatInfix clumpRex tightPolicy rune acc slay)
+# simplecase slay 0
+- SEQUE _       | ifix rune (tightPolicy clumpRex slay :: acc)
+- PREFX _ _     | Die "impossible: double tight rune"
+- INFIX es r xs ^ eatInfix clumpRex tightPolicy r _ xs
+                | If r==rune | (heirSeq clumpRex es :: acc)
+                | lsing | ifix rune (heirSeq clumpRex es :: acc)
+
+= (tightPolicy clumpRex slay) ; (Clump > Rex) > SubLayout Elem > Rex
+# simplecase slay 0
+- SEQUE xs      | heirSeq clumpRex xs ; tight infix is never empty
+- PREFX r xs    | Ifz xs (NEST r [] 0)
+                | PREF r [tightPolicy-clumpRex-(subLayout xs)] 0
+- INFIX es r xs | eatInfix clumpRex tightPolicy r (heirSeq clumpRex es)::NIL xs
+
+= (clumpRex clump@SPAN[_ _ _ elems]) ; Clump > Rex
+| tightPolicy clumpRex | subLayout | lmap spanFrag | stream elems
+
+= (treeRex t) ; Tree > Rex
+# simplecase t 0
+- TLEAF c     | clumpRex c
+- TNODE r s h | OPEN r (map treeRex s) (ocase h 0 x&(treeRex x))
+
+= (treesRex trees) ; List Tree > Rex
+: t ts < lcase trees (Die "treesRex: empty block")
+| Ifz ts | treeRex t
+| else   | treeRex (**TNODE "|" array-trees NONE)
+
+= (rexStep bs mInp) ; BlockState > Maybe Str > (BlockState, List (Nat, Rex))
+@ (bs, trees) | treeStep bs mInp
+@ rexes       | lturn trees [lino trees]&(lino, treesRex trees)
+| (bs, rexes)
+
+; <RexTests> ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= ({'} ss rex)
+@ args (rexKids rex)
+| If (Ne 1 Sz-args) | sireErr ss rex {Expected 1 Parameter}
+| 0 ss EMBD-(fst args)
+
+=?= (BS "REPL" 2 WOODS, [[1 '(f x 3-4)_] 0])
+    | rexStep (BS "REPL" 1 WOODS) (0 "(f x 3-4)_")
+
+;;; Sire Backend Types ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# struct Lam
+| LAM lamPin/Bit lamMark/Bit lamRecr/Bit lamTag/Nat lamArgs/Nat lamBody/Sire
+
+# simpledata Sire
+- V Nat
+- K Any
+- G Bind
+- A Sire Sire
+- L Sire Sire
+- R (Row Sire) Sire
+- M Sire
+- F Lam
+
+# struct Bind
+| BIND bindKey/Nat     bindValue/Any bindCode/Sire
+       bindLocation/Any bindName/Any bindProps/Any
+
+# struct Arg (ARG argDepth/Nat argExp/Sire)
+
+# struct Pot
+| POT potLam/Lam potMark/Bool potDeep/Nat potNeed/Nat potArgs/(List Arg)
+
+# struct Res (RES resExp/Sire resPot/(Maybe Pot))
+
+= apple       | foldl A
+= appList     | lfoldl A
+= (apple_ xs) | foldl A fst-xs (drop 1 xs)
+
+;;; Inlining ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (moveTo from to alreadyBound topExp) ; Nat > Nat > Nat > Sire > Sire
+^ If from==to topExp (_ alreadyBound topExp)
+? (go l e)
+# simplecase e e
+- V v   | If (Lt v l) e (V | Sub (Add v to) from)
+- M x   | M (go l x)
+- A f x | A (go l f) (go l x)
+- L v b | L (go l v) (go Inc-l b)
+- R v b | (ll @ Add l Sz-v)(R (map (go ll) v) (go ll b))
+- F fn  | F (lamBodySet (go _ lamBody-fn) fn)^(Inc | Add l lamArgs-fn)
+
+= (renum d !n args)
+: a@ARG[ad ax] as < lcase args NIL
+| (moveTo ad (Add d n) 0 ax :: renum d Inc-n as)
+
+= (expandPot d e@POT[lam _ deep _ args])
+@ body | moveTo deep d (Inc lamArgs-lam) lamBody-lam
+| lfoldr L body
+| renum d 0 (ARG d (K 0) :: lrev args)
+
+= (reApp inline d s args f@RES[!fx !me])
+@ otherwise
+    : r@[rd rx] rs < lcase args f
+    | reApp inline d s rs
+    | RES (A fx | moveTo rd d 0 rx)
+    : e@[_ _mark _ pNeed pArgs] < ocase me NONE
+    | Ifz pNeed NONE
+    | SOME | potNeedSet-(Dec pNeed) | potArgsSet-(r :: pArgs) e
+: e < ocase me otherwise
+| Ifz (potNeed e == 0)&&(potMark e) otherwise
+| inline d s args (expandPot d e)
+
+= (inline d s params syr) ; Nat > List (Maybe Pot) > List Arg > Sire > Res
+@ rap (reApp inline d s params)
+# simplecase syr (###"inline: bad sire" syr)
+- K _ | rap | RES syr NONE
+- V v | rap | RES syr | lix v s
+- G p | rap | RES syr | resPot | inline d NIL NIL | bindCode Unpin-p
+- M b
+    @ RES[r me] | inline d s NIL b
+    | rap | RES r (omap me | potMarkSet 1)
+- F lam
+    @ LAM[_ lMark lRecr _ lArgs lBody] lam
+    | rap
+    | RES @ s | lweld (lrep NONE Inc-lArgs) s
+          @ d | Inc (Add lArgs d)
+          | F | (lamBodySet _ lam)^(resExp | inline d s NIL lBody)
+    | If lRecr NONE
+    | SOME (POT lam lMark d lArgs NIL)
+- R vs b
+    @ nBinds (Sz vs)
+    @ d_ | Add d nBinds
+    @ s_ | lweld (lrep NONE nBinds) s
+    @ vr | map (inline d_ s_ NIL) vs
+    @ br | inline d_ s_ params b
+    | RES (R (map resExp vr) resExp-br) NONE
+- L v b
+    @ RES[vrs vre]  | inline d     s        NIL    v
+    @ RES[brs _bre] | inline Inc-d (vre::s) params b
+    | RES (L vrs brs) NONE
+- A f x
+    @ RES[x _] | inline d s NIL x
+    | inline d s (ARG d x :: params) f
+
+;;; Compiler ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# simpledata Exp
+- VAL Any
+- VAR Nat
+- APP Exp Exp
+
+# struct Fun
+| FUN funPin/Bool funTag/Nat funSlf/Nat funArg/(List Nat) funBin/(Tab Nat Exp)
+      funBod/Exp
+
+= (constantApp f x) | (("VAL"==(Hd f) && "VAL"==(Hd x)) && Ne 1 (planArity fst-f))
+= (foldingApp f x)  | If (constantApp f x) VAL-(fst-f fst-x) (APP f x)
+
+= (ingestAst compile s x st@[env nex])
+    @ go (ingestAst compile)
+
+    # simplecase x (###"ingestAst: bad input" x)
+    - V i   | st,(lix i s)
+    - M x   | go s x st
+    - G g   | st,(VAL (**bindValue | Unpin g))
+    - K x   | st,(VAL x)
+    - A f x @ [st f] (go s f st)
+            @ [st x] (go s x st)
+            | st,(foldingApp f x)
+
+    - L v b
+        @ [[env nex] vr] | go s v [env nex]
+        | If (Hd vr == "APP")
+            @ k   | nex
+            @ nex | Inc nex
+            @ env | bstPut env k vr
+            | go (VAR k :: s) b [env nex]
+        | go (vr::s) b [env nex]
+
+    - R vs b
+        @ nBinds | Sz vs
+        @ ks     | gen nBinds Add-nex
+        @ nex    | Add nex nBinds
+        @ ss     | lweld (stream | map VAR ks) s
+        @ st     ^ foldl _ [env nex] (zip vs ks)
+                 & (st [vx k])
+                 @ [[env nex] vr] (go ss vx st)
+                 | [(bstPut env k vr) nex]
+        | go ss b st
+
+    - F lam
+        @ LAM[pin _mark _rec tag lArg lBod] lam
+        @ slf           | nex
+        @ !nex          | Inc nex
+        @ arg           | lgen lArg (Add nex)
+        @ !nex          | Add nex lArg
+        @ s2            | lweld (lmap VAR lrev-arg) (VAR slf :: s)
+        @ [bin nex],bod | go s2 lBod [bstEmpty nex]
+        @ [cns free]    | compile nex (FUN pin tag slf arg bin bod)
+        ^ [[env nex] _]
+        | lfoldl APP (VAL cns) (lmap VAR free)
+
+= (analyzeFn fun@FUN[_ _ fSlf fArg fBin fBod]) ; Fun > (Tab Nat Nat, List Nat)
+^ @ final@[seen tab lis] (_ fBod (bstEmpty, bstEmpty, NIL))
+  | (tab, lrev lis)
+? (go sx st0@[seen0 tab0 lis0])
+# simplecase sx (###"analyzeFn: bad input" sx)
+- VAL _   | st0
+- APP f x | go x (go f st0)
+- VAR k   @ [seen tab lis]
+              | If (bstHas k seen0 || not (bstHas k fBin)) st0
+              | go (bstIdx k fBin)
+              | (bstIns k k seen0, tab0, lis0)
+         ++ seen
+         ++ bstIns k Inc-(bstIdx k tab) tab
+         ++ If (bstHas k tab) lis k::lis
+
+= (isCodeShaped depth v)
+@ h  | Init v
+@ hh | Init h
+|| (IsNat v && Le v depth)
+&& IsApp-v
+|| Nil-h
+&& IsApp-h
+|| Eq-1-hh
+ | Nil-hh
+
+= (codeGen fn stat@(refcounts, refSeq)) ; Fun > (Tab Nat Nat, List Nat) > Any
+@ FUN[fPin fTag fSlf fArg fBin fBod] fn
+@ keep
+    & k
+    : _  < ocase (bstSearch k fBin)      0
+    : cv < ocase (bstSearch k refcounts) 0
+    | Gt cv 1
+@ binds   | lfilter keep refSeq
+@ nBind   | llen binds
+@ nArg    | llen fArg
+@ scopeSz | Inc (Add nArg nBind)
+@ scope   | (fSlf :: lweld fArg binds)
+@ table   | bstFromPairsList (lzip scope lrange-0)
+@ cgen
+    ? (cgen s)
+    # simplecase s (###"codeGen: bad sire" s)
+    - VAL k   | If (isCodeShaped scopeSz k) (0 k) k
+    - APP f x | 0 (cgen f) (cgen x)
+    - VAR v   @ fall (bstIdx v table)
+              | If (1 != bstIdx v refcounts) fall
+              : bx < ocase (bstSearch v fBin) fall
+              | cgen bx
+^ If fPin (Pin _) _
+^ Law fTag nArg (lfoldr _ cgen-fBod binds)
+& (k rest)
+| 1 (cgen | bstIdx k fBin) rest
+
+= (compile nex f1) ; Nat > Fun > (Any, List Nat)
+@ FUN[pin1 tag1 slf1 arg1 bin1 bod1] f1
+@ isFree            | k&(not (k==slf1 || (bstHas k bin1 || lhas k arg1)))
+@ stat1@(_, !refs1) | analyzeFn f1
+@ free              | lfilter isFree refs1
+@ newSelf           | lfoldl APP VAR-nex (lmap VAR free)
+@ f2                | funSlfSet | nex
+                    | funArgSet | lweld free arg1
+                    | funBinSet | bstIns slf1 newSelf bin1
+                    | f1
+@ (f3, stat3)       | If Nil-free (f1, stat1) (f2, analyzeFn f2)
+| (codeGen f3 stat3, free)
+
+= (compileSire inlined) ; Sire > Any
+^ (fst _) 0
+@ res@([bin n], bod) (ingestAst compile NIL inlined (bstEmpty, 0))
+| compile (Add 2 n)
+| FUN 0 0 n (lsing Inc-n) bin bod
+
+(evalSire sire)=(| compileSire | resExp | inline 0 NIL NIL sire) ; Sire > Any
+
+;;; Sire Frontend Types ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; type Scope   = Bst Str Pin-Bind
+; type Modules = (Bst Str Pin-(BTable Str Bind))
+
+# struct SireState
+| SIRE_STATE
+  sireNextKey/Nat sireContext/Str sireScope/Scope sireModules/Modules
+  sireLineNum/Nat
+
+= emptySireState
+| SIRE_STATE 1 0 0 0 0
+
+;;; Reading Naturals ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+# simpledata Leaf
+- DECI Nat
+- IDNT Str
+- CORD Str
+
+= (tryReadLeaf rex) ; Rex > Maybe Leaf
+: _ style _ txt _ _ _ heir _ _ < rexOpen rex
+| And Nil-heir
+| If style=="TEXT" | SOME (CORD txt)
+| And style=="WORD"
+| And txt
+| Ifz isDigit-(Load8 0 txt) (SOME IDNT-txt)
+| And isSireDecimal-txt
+| SOME (DECI loadSireDecimal-txt)
+
+(tryReadKey rex)=(omap (tryReadLeaf rex) fst) ; Rex > Maybe Nat
+
+;;; Name Resolution ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (resolveUnqualified rex env sym ss) ; Rex > List Maybe-Str > Str > Repl Sire
+@ notFound
+    : bn < bstSearchCase sym sireScope-ss (sireErr ss rex "undefined reference")
+    | (ss, G bn)
+: ng < lfindix planEql-(SOME sym) env notFound
+| (ss, V ng)
+
+;;; Sire ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (intersperse sep xs)
+: i < gen Dec-(Lsh Sz-xs 1)
+| If (Mod i 2) sep (Ix (Rsh i 1) xs)
+
+= (lookupVal sym ss) ; Bar > SireState > Maybe Any
+@ bind (bstIdx sym | sireScope ss)
+| And bind
+| Ifz IsPin-bind    | Die "bad bind!",bind
+| SOME (**bindValue | Unpin bind)
+
+= (loadMulti acc rex) | Ifz rex acc | loadMulti (acc rexText-rex) rexHeir-rex
+= (readMultiLine rex) | strCat | intersperse newlineChar | loadMulti 0 rex
+
+= (readAppExpr readExpr env rex ss)
+@ (ss, params) | mapstate (readExpr env) (rexKids rex) ss
+^ (ss, _)
+| Case (Sz params) (K 0, fst params) (apple_ params)
+
+= (sireReadKey ss rex) ; Rex > Repl Nat
+| ocase (tryReadLeaf rex) (sireErr ss rex "invalid key") v&(fst v)
+
+= (resolveQualified rex modu name ss) ; Rex > Str > Str > Repl Sire
+@ modules  | **sireModules ss
+: pScope   < bstSearchCase modu modules (sireErr ss rex "undefined module")
+@ scope    | Unpin pScope
+: _ix bind < dictSearchCase name scope (sireErr ss rex "undefined symbol")
+| (ss, G bind)
+
+= (readRefr _readExpr env rex ss) ; List Maybe-Str > Rex > Repl Sire
+@ kids     | rexKids rex
+@ rune     | rexRune rex
+@ nKid     | Sz kids
+| If (nKid == 1)
+    @ n | sireReadKey ss fst-kids
+    | resolveUnqualified rex env n ss
+| If (nKid == 2)
+    @ m | sireReadKey ss fst-kids
+    @ n | sireReadKey ss snd-kids
+    | resolveQualified rex m n ss
+| sireErr ss rex "malformed reference"
+
+= (readLin readExpr env rex ss)
+@ rune (rexRune rex)
+@ kids (rexKids rex)
+| If (Sz kids != 1) | sireErr ss rex "only one param was expected"
+@ [ss exp] | readExpr env fst-kids ss
+| (ss, M exp)
+
+= (readLet readExpr env rex ss)
+@ kids@[nRex vRex bRex] (rexKids rex)
+| If (Sz-kids != 3) | sireErr ss rex "expected three params"
+@ [ss v] | readExpr env vRex ss
+@ [ss b] | readExpr (SOME (sireReadKey ss nRex) :: env) bRex ss
+| (ss, L v b)
+
+= (readLetRecBinds acc rex ss ok)
+| Ifz rex (ok ss | arrayRev acc)
+@ kids | rexKids rex
+@ nKid | Sz kids
+| Ifz (nKid==2 || nKid==3) | sireErr ss rex "invalid bind"
+@ [keyRex valRex moreRex] kids
+@ n | sireReadKey ss keyRex
+| readLetRecBinds ([n valRex] :: acc) moreRex ss ok
+
+= (readLetRec readExpr env rex ss)
+@ kids@[vRex bRex moreRex] (rexKids rex)
+| If (Sz kids != 2)        | sireErr ss rex "expected two params"
+| If (rexRune vRex != "=") | sireErr ss rex "binder must be an (=) rune"
+: ss binds   < readLetRecBinds NIL vRex ss
+@ names      | map fst binds
+@ varRexes   | map snd binds
+@ subenv     | lweld (stream | map SOME names) env
+@ [ss binds] | mapstate readExpr-subenv varRexes ss
+@ [ss body ] | readExpr subenv bRex ss
+| (ss, R binds body)
+
+= (readKet readExpr env rex ss)
+@ kids           | rexKids rex
+@ nKid           | Sz kids
+@ last           | get kids Dec-nKid
+| If (Lt nKid 2) | sireErr ss rex "expected at least two params"
+@ [ss v] | readExpr env last ss
+@ [ss b] | mapstate readExpr-(SOME "_" :: env) (take Dec-nKid kids) ss
+| (ss, L v (apple_ b))
+
+= (readAnonSig rex ss)
+| If rexIsLeaf-rex        | [(sireReadKey ss rex)]
+| If (rexRune rex != "|") | sireErr ss rex "invalid lambda signature"
+| map sireReadKey-ss rexKids-rex
+
+= (readAnonLam readExpr env rex ss)
+@ kids | rexKids rex
+@ nKid | Sz kids
+| If (nKid != 2)  | sireErr ss rex "expected two params"
+@ [sigRex bodRex] | kids
+@ argNames        | readAnonSig sigRex ss
+@ [ss body]       ^ readExpr _ bodRex ss
+                  ^ lweld _ env
+                  | lrev (NONE :: stream (map SOME argNames))
+| (ss, F (LAM 0 0 0 0 Sz-argNames body))
+
+= (readFuncHead rex ss) ; Rex > (Bit, Nat)
+| If (rexRune rex == "**")
+    @ kids@[keyRex] (rexKids rex)
+    | If (Sz kids != 1)
+        | sireErr ss rex "invalid lambda name"
+    | (1, sireReadKey ss keyRex)
+| (0, sireReadKey ss rex)
+
+= (readWutSig rex ss) ; Rex > Repl (Bit, Str, Row Str)
+| If rexIsLeaf-rex (ss, (0, sireReadKey ss rex, []))
+@ kids | rexKids rex
+| If ((rexRune rex != "|") || Nil kids)
+    | sireErr ss rex "invalid lambda signature"
+@ [inl nam] | readFuncHead fst-kids ss
+| (ss, (inl, nam, map sireReadKey-ss (drop 1 kids)))
+
+= (hasRefTo d exp)
+# simplecase exp 0
+- V v   | v==d
+- A f x | (hasRefTo d f || hasRefTo d x)
+- L v b | (hasRefTo d v || hasRefTo Inc-d b)
+- R v b | lany (hasRefTo (Add d Sz-v)) (b :: stream v)
+- M f   | hasRefTo d f
+- F l   | hasRefTo Inc-(Add d lamArgs-l) lamBody-l
+
+= (mkF pin mark tag numArgs body)
+@ isRecur (hasRefTo numArgs body)
+| F (LAM pin mark isRecur tag numArgs body)
+
+= (readLam pinned readExpr env rex ss)
+@ kids@[sigRex bodRex] | rexKids rex
+@ nKid                 | Sz kids
+| If (nKid != 2)       | sireErr ss rex "expected two or three params"
+@ [ss res@[inline f argNames]] | readWutSig sigRex ss
+@ env2 ^ lweld _ env
+       | lrev | lmap SOME (f :: stream argNames)
+@ nArg | Sz argNames
+@ [ss body] | readExpr env2 bodRex ss
+| (ss, mkF pinned inline f nArg body)
+| else
+
+; _ > Rex > List (Maybe Nat) > Rex > Repl Sire
+= (readPrimLeaf readExpr blockRex env rex ss)
+@ heir      | rexHeir rex
+@ invalid   | sireErr ss rex "malformed leaf"
+@ ifNotLeaf | If (rexStyle rex != "WORD") invalid
+            : macro   < ocase (lookupVal "#" ss) invalid
+            @ [ss ex] | macro ss (PREF "#" [rex] 0)
+            | readExpr env ex ss
+| If heir   | readExpr env (OPEN "#" (rexSetHeir 0 rex, heir) 0) ss
+: leaf      < ocase (tryReadLeaf rex) ifNotLeaf
+# simplecase leaf (sireErr ss leaf "readPrimLeaf: bad leaf")
+- DECI n | (ss, K n)
+- CORD c | (ss, K c)
+- IDNT n | resolveUnqualified blockRex env n ss
+
+= (readPinned _readExpr _env rex ss)
+@ sons (rexSons rex)
+| Ifz (Eq 1 Sz-sons && Nil rexHeir-rex) | sireErr ss rex "usage: ##3, ##foo"
+| (ss, K Pin-(sireReadKey ss fst-sons))
+
+= (readPrimExpr readExpr env rex ss)
+: type style rune _ _ _ _ _ _ _ < rexOpen rex
+# simpleswitch type (Die "impossible")
+- "EMBD"
+    | (ss, K rexEmbd-rex)
+- "LEAF"
+    | If (style == "LINE") | (ss, K readMultiLine-rex)
+    | readPrimLeaf readExpr rex env rex ss
+- "NODE"
+    ^ _ readExpr env rex ss
+    # simpleswitch rune (sireErr ss rex "undefined rune")
+    - "|"   | readAppExpr
+    - "#|"  | readAppExpr
+    - "-"   | readAppExpr
+    - "#-"  | readAppExpr
+    - "**"  | readLin
+    - "#**" | readLin
+    - "@"   | readLet
+    - "#@"  | readLet
+    - "@@"  | readLetRec
+    - "#@@" | readLetRec
+    - "^"   | readKet
+    - "#^"  | readKet
+    - "&"   | readAnonLam
+    - "#&"  | readAnonLam
+    - "?"   | readLam 0
+    - "#?"  | readLam 0
+    - "??"  | readLam 1
+    - "#??" | readLam 1
+    - "."   | readRefr
+    - "#."  | readRefr
+    - "##"  | readPinned
+    - "###" | readPinned
+
+= (readExpr e rex ss)
+@ noMacro           | readPrimExpr readExpr e rex ss
+| Ifz rexIsNode-rex | noMacro
+: macro             < ocase (lookupVal rexRune-rex ss) noMacro
+@ [ss expo]         | macro ss rex
+| readExpr e expo ss
+
+= (xtracePlan plan x)
+@ wrote | xputstrLn | shallowPlanToString 80 plan
+| Seq wrote x
+
+= (xtraceRex rex x)
+@ !wrote | xputstrLn | rexToString 80 rex
+| Seq wrote x
+
+= ("#watch" ss rex)
+@ args   | rexKids rex
+@ _watch | Ix 0 args
+@ note   | Ix 1 args
+@ body   | Last args
+@ vars   | ldrop 2 | stream | Init args
+@ vxps   | lturn vars & v @ t (rexText v) | appE (TEXT t 0, WORD t 0)
+@ msg    | appE | array | CONS note vxps
+@ expr   | appE (EMBD xtracePlan, msg, body)
+| 0 ss expr
+
+; usage example:
+;
+;     # watch "here" x y z
+;     | body
+
+= (evalExpr rex ss)
+@ (ss, expr) | readExpr NIL rex ss
+@ !val       | Force (evalSire expr)
+| xtracePlan val
+| (ss, 0)
+
+
+= (isExpRune rune)
+| has rune , "|" "#|" "-" "#-" "**" "#**" "@" "#@" "@@" "#@@" "^" "#^"
+             "&" "#&" "?" "#?" "??" "#??" "." "#." "##" "###"
+
+= (execBind rx (nm, expr) ss@SIRE_STATE[nex ctx scope modules lino])
+@ !val | Force (evalSire expr)
+@ !pin | Pin (BIND nex val expr ctx nm 0)
+@ !nex | Inc nex
+@ !ss  | SIRE_STATE nex ctx (bstPut scope nm pin) modules lino
+; xtracePlan | nm
+| xtraceRex  | OPEN "=" [(TEXT nm 0)] 0
+; xtracePlan | "========================================"
+; xtraceRex  | rx
+| xtracePlan | val
+| (ss, val)
+
+= (readLawBinder ss sigRex)
+@ kids@[hedRex] (rexKids sigRex)
+@ hedKids    (rexKids hedRex)
+@ hedRune (rexRune hedRex)
+| If (Nil kids || (rexRune sigRex != "|")) | sireErr ss sigRex "bad law sig"
+^ (_, map sireReadKey-ss (drop 1 kids))
+| If hedRune!="**" (0, sireReadKey ss hedRex)
+| Ifz (Eq 1 | Sz-hedKids) | sireErr ss sigRex "bad binder"
+| (1, sireReadKey ss (fst hedKids))
+
+= (readBindBody bb rex ss) ; Either Nat [[Bit Nat] Row-Nat] > Rex > Repl Sire
+@ left  & _               | NIL
+@ right & [[_ self] args] | lrev | lmap SOME (self :: stream args)
+| readExpr (ecase bb left right) rex ss
+
+= (readBindCmd ss rex rexes@[sg exprRex])
+| Ifz (Eq 2 Sz-rexes)
+    | sireErr ss rex "expected two or three params"
+@ binder    | ocase tryReadKey-sg RIGHT-(readLawBinder ss sg) LEFT
+@ [ss expr] | readBindBody binder exprRex ss
+^ (ss, ecase binder v&(v, expr) _)
+& [[doInline tagName] argNames]
+| (tagName, mkF 1 doInline tagName Sz-argNames expr)
+
+= (doDefine acc rex ss)
+@ heir (rexHeir rex)
+| If (rexRune rex == rexRune heir)
+    @ [ss tb] | readBindCmd ss rex (rexSons rex)
+    @ [ss v1] | execBind rex tb ss
+    | doDefine (snoc acc v1) heir ss
+@ [ss tb] | readBindCmd ss rex rexKids-rex
+@ [ss v1] | execBind rex tb ss
+| (ss, snoc acc v1)
+
+= (switchToContext newCtx SIRE_STATE[nex oldCtx scope oldMods lino])
+^ SIRE_STATE nex newCtx bstEmpty _ 1
+| Ifz oldCtx oldMods
+| bstPut oldMods oldCtx Pin-(bstSave scope)
+
+= (doEnter topRex ss)
+@ kids | rexKids topRex
+@ nKid | Sz kids
+@ dead | sireErr ss topRex "malformed module header"
+| If (Eq 1 nKid)
+    @ [targetRex] | kids
+    @ target      | sireReadKey ss targetRex
+    | Ifz (sireContext ss || bstIsEmpty (sireScope ss))
+        | sireErr ss topRex "broken pre-condition"
+    | (switchToContext target ss, 0)
+| If (Eq 2 nKid)
+    @ [targetRex beforeForm] kids
+    @ beforeSons (rexSons beforeForm)
+    | If || (rexRune beforeForm != "<-")
+         || (rexHeir beforeForm != 0)
+          | (Sz beforeSons != 1)
+      dead
+    @ target    | sireReadKey ss targetRex
+    @ wasJustAt | sireReadKey ss fst-beforeSons
+    | If (sireContext ss != wasJustAt)
+        | sireErr ss topRex "broken pre-condition"
+    | (switchToContext target ss, 0)
+| dead
+
+= (fmtAssert x y)
+^ OPEN "=?=" [_] 0
+| OPEN "*" [x]
+| OPEN "*" [y]
+| 0
+
+= (doAssert rex ss)
+@ kids@[xr yr]        | rexKids rex
+| If (Sz kids != 2)   | sireErr ss rex "#=?= requires two parameters"
+@ [ss xe]             | readExpr NIL xr ss
+@ [ss ye]             | readExpr NIL yr ss
+@ xv                  | evalSire xe
+@ yv                  | evalSire ye
+| xtraceRex (fmtAssert xr yr)
+| If (planEql xv yv) (ss, xv)
+; xtraceRex (fmtAssert EMBD-xv EMBD-yv)
+| sireErr ss rex "assertion failed"
+
+= (doMultiAssert rex ss)
+@ ryn (rexRune rex)
+^ _ NIL rex ss
+? (go acc rex ss)
+@ heir (rexHeir rex)
+| If (Nil heir || (rexRune heir != ryn))
+    @ [ss val] | doAssert rex ss
+    | (ss, arrayRev val::acc)
+@ [ss val] | doAssert (rexSetHeir 0 rex) ss
+| go val::acc heir ss
+
+= (doFilter ryn acc rex ss)
+| Ifz rex ^ (sireScopeSet (bstFromPairsList _) ss, 0)
+           : k < lturn acc
+           : v < bstSearchCase k (**sireScope ss)
+                   | sireErr ss varE-k "undefined"
+           | [k v]
+| If (rexRune rex != ryn) | sireErr ss rex "bad export-filter syntax"
+@ syms | map sireReadKey-ss rexSons-rex
+@ acc  | lweld (stream syms) acc
+| doFilter ryn acc (rexHeir rex) ss
+
+= (importModule rex modu mWhite ss)
+@ otherScope
+    : modPin < bstSearchCase modu sireModules-ss
+                 (sireErr ss rex "undefined module")
+    | If IsPin-modPin Unpin-modPin
+    | sireErr ss rex "corrupted sire state; module is not a pin"
+@ oldScope (sireScope ss)
+^ sireScopeSet _ ss
+: whitelist < ocase mWhite (bstUnion (bstLoad otherScope) oldScope)
+| foldl (acc kv & bstPut acc fst-kv snd-kv) oldScope
+: k < foreach whitelist
+| dictSearchCase k otherScope (sireErr ss (TEXT k 0) "undefined symbol")
+      (_ bind & [k bind])
+
+= (doImport ryn blockRex ss)
+^ _ ss blockRex
+? (go ss rex)
+| Ifz rex (ss, 0)
+@ bad  | sireErr ss rex "bad import"
+@ sons | rexSons rex
+@ nSon | Sz sons
+| If (rexRune rex != ryn) bad
+| If (nSon == 1)
+    @ [moduleRex] | sons
+    @ modu | sireReadKey ss moduleRex
+    @ ss   | importModule blockRex modu NONE ss
+    | go ss (rexHeir rex)
+| If (nSon == 2)
+    @ [moduleRex ilist] sons
+    @ modu | sireReadKey ss moduleRex
+    @ syms | Ifz (Eq "," rexRune-ilist && Nil rexHeir-ilist) bad
+           | map sireReadKey-ss rexSons-ilist
+    @ ss   | importModule blockRex modu SOME-syms ss
+    | go ss (rexHeir rex)
+| bad
+
+= (executeSire rex ss) ; Bit > Nat > Rex > SireM Any
+@ rune     | rexRune rex
+@ doMulti  | (rex ss)&(mapstate executeSire rexKids-rex ss)
+@ noMacro
+    ^ _ rex ss
+    | Ifz rexIsNode-rex evalExpr
+    # simpleswitch rune | If isExpRune-rune evalExpr
+                        | sireErr ss rex "undefined rune"
+    - "#="   | doDefine []
+    - "="    | doDefine []
+    - "####" | doEnter
+    - "*"    | doMulti
+    - "#*"   | doMulti
+    - "^-^"  | doFilter rune NIL
+    - "#^-^" | doFilter rune NIL
+    - "=?="  | doMultiAssert
+    - "#=?=" | doMultiAssert
+    - "#:|"  | doImport rune
+    - ":|"   | doImport rune
+: macro      < ocase (lookupVal rune ss) noMacro
+@ [ss expo]  | macro ss rex
+| executeSire expo ss
+
+= (executeSireExn interactive rex ss)
+@ res | xtry executeSire-rex ss
+      ; res :: (0[(SireState, output)] | err[msg])
+@ typ | Hd res
+@ val | fst res
+| Ifz typ val
+@ final
+    | If interactive | [ss 1]
+    | ##Die "fatal error"
+| If (typ == "SireError" && IsApp val)
+    | xtraceRex val
+    | final
+| else
+    | xputstr "ERROR: "
+    | xtracePlan typ
+    | xputstrLn "PARAM:"
+    | xtracePlan val
+    | final
+
+;;; The Sire Quine ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (consumeLines buf) ; Str > (Row Str, Str)
+@ wid Bytes-buf
+^ _ 0 0
+? (go acc off)
+@ ix (strElemIndexOff newlineChar off buf)
+| If ix==wid | (acc, dropBytes off buf)
+@ sliceSz    | Sub ix off
+@ acc        | acc (Load off sliceSz buf)
+| go acc Inc-(Add off sliceSz)
+
+= (sireRepl prevLino ss bs buf interactive rawInput commitSS)
+
+    ; xtracePlan ("interactive" interactive)
+    ; xtracePlan ("input" rawInput)
+    ; xtracePlan ("oldbuf" buf)
+
+    @ eof          | Nil rawInput
+    @ fimp         | If eof newlineChar rawInput
+    @ welded       | strWeld buf fimp
+    @ (lines, buf) | consumeLines welded
+
+    ; xtracePlan ("eof" eof)
+    ; xtracePlan ("fimp" fimp)
+    ; xtracePlan ("welded" welded)
+    ; xtracePlan ("lines_prefudge" lines)
+    ; xtracePlan ("newbuf" buf)
+
+    @ lines        | (If eof (snoc _ NONE) _)^(map SOME lines)
+
+    ; xtracePlan "lines"-lines
+
+    @ (bs, blocks)
+        ^ _ bs NIL (stream lines)
+        ? (go bs acc lines)
+        : line lines  < lcase lines (bs, lcat lrev-acc)
+        @ (bs, frags) | rexStep bs line
+        | go bs (CONS frags acc) lines
+
+    @ [!ss newLino]
+        | Force
+        ^ lfoldl _ [ss prevLino] blocks
+        & ([ss prevLino] [newLino rex])
+
+        | Seq (Force rex)
+        ; xtraceRex rex
+
+        @ newLines   | Sub newLino prevLino
+        @ ss         | sireLineNumSet (Add newLines | sireLineNum ss)
+                     | ss
+        @ [!ss _out] | executeSireExn interactive rex ss
+
+        ; Commit to restarting the binary with the new sire state.
+        @ !committedSS | commitSS ss
+        | [committedSS newLino]
+
+    ; xtracePlan ("buf" buf)
+    ; xtracePlan ("bs" bs)
+    ; xtracePlan ("blocks" blocks)
+    ; xtracePlan ("newLino" newLino)
+    ; xtracePlan ("ss" ss)
+
+    | 0 0
+    | If eof | ##"EOF"
+    | else   | sireRepl newLino ss bs buf
+
+= (runSireRepl ss0 firstInteractive firstInput)
+@ bs0 | BS "REPL" 1 WOODS
+; xtracePlan ("runSireRepl" save args firstInput arg int ss0 bs0)
+| sireRepl 0 ss0 bs0 "" firstInteractive firstInput
+
+bufSz=128
+
+= (isInteractive args)
+@ arg | fst args
+(arg=="-i" || arg=="--interactive")
+
+= (restart mainLoop ss args)
+@ !buf | Bex (Lsh bufSz 3)
+@ interactive | isInteractive args
+| mainLoop interactive buf
+| runSireRepl ss
+
+; > SireState > IO SireState
+= (performCommit mainLoop ss)
+; commit to restarting the binary with the new SireState
+@ sv | ##12 (restart mainLoop ss)
+| Seq sv
+; pull the persisted state out of the returned partial function call.
+| Ix 1 sv
+
+= (mainLoop interactive buf st)
+@ res (##10 (0 0 buf bufSz 0))
+| If IsNat-res
+    | xtracePlan ("error_code" res)
+    | ##ReadError ("error_code" res)
+@ got | Hd res
+@ buf | fst res
+| And got
+@ input (byteSlice 0 got buf)
+@ (_, st) (st interactive input (performCommit mainLoop))
+| Seq (Force st)
+| mainLoop interactive buf st
+
+= (main args)
+| restart mainLoop emptySireState args
+
+
+;;; Utils ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (Trace a b) | b
+= (Sap f !x)  | f x
+
+= (lintersperse sep list@[x xs])
+^ And list (lcons x (_ xs))
+? (loop list@[x xs])
+| And list
+| (sep, (x, loop xs))
+
+( lintersperse 9 ~[]      =?= ~[]          )
+( lintersperse 9 ~[1]     =?= ~[1]         )
+( lintersperse 9 ~[1 2]   =?= ~[1 9 2]     )
+( lintersperse 9 ~[1 2 3] =?= ~[1 9 2 9 3] )
+
+(lstrcat ss)=(lfoldl strWeld 0 ss)
+
+(id x)=x
+(const a b)=a
+
+;;; Fetch profiling information ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Takes the raw samples and turns then into a reversed link list of chunks so
+; they can be handled in order.
+;
+; > RawProfSample > List RawProfSample
+= (orderChunks rawprof)
+| lrev
+^ _ rawprof
+? (go chunk)
+| Ifz chunk
+    NIL
+| If | Ne 5 | Hd chunk
+    | Die "Bad Profiling Segment"
+| CONS chunk | go | Ix 0 chunk
+
+; > () > List ProfSample
+= (FetchProfiling nop)
+@ !p | xgetprof nop
+^ _ (orderChunks p)
+? (process c)
+: c cs < lcase c NIL
+^ _ c 1
+? (iter chunk i)
+@ hdr | Ix i chunk
+| Ifz hdr
+    | process cs
+@ tail | Ix (Inc i) chunk
+@ type | Con hdr 7
+@ nstime | Rsh hdr 3
+| CONS (type nstime tail) (iter chunk Add-i-2)
+
+
+; load bearing double newlines above

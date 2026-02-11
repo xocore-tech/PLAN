@@ -1,0 +1,11 @@
+$DivMod F
+
+dup 0   A 16 A_F.
+dup 15  A 16 A_F.
+dup 16  A 16 A_F.
+dup 17  A 16 A_F.
+dup 254 A 16 A_F.
+dup 255 A 16 A_F.
+dup 256 A 16 A_F.
+
+drop

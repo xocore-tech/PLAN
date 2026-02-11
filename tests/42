@@ -1,0 +1,13 @@
+$ByteIx F
+
+dup 0 A 65534 A_F.
+dup 1 A 65534 A_F.
+dup 2 A 65534 A_F.
+
+dup 0 A 65535 A_F.
+dup 1 A 65535 A_F.
+dup 2 A 65535 A_F.
+
+dup 0 A 65536 A_F.
+dup 1 A 65536 A_F.
+dup 2 A 65536 A_F.

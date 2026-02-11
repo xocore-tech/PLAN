@@ -1,0 +1,135 @@
+* Adding an Explicit Size to Nats and Closures
+** How it works now
+Right now, the GC header is used to store size information.  It is stored
+in *bits*, and the size is packed together in the same word as the type.
+*** Getting the size of a closure
+In order to calculate the size of a closure, we first shift right to drop
+the GC type tag, and then we convert bits to bytes with another shift.
+But since the size of a closure is always a multiple of 64 bits, we can
+combine these two shifts into one.
+*** Getting the word-size of a nat
+In order to calculate the word-size of a nat, we shift to get rid of
+the type tag, add 63 and then divide by 64.  Because the gc-type-tag of
+nats is always zero, this string of operations can be transformed via
+algebra into a single add+shift.
+*** Getting the bit-size of a nat
+Just shift right to drop the tag.
+** What is wrong with the current approach
+Because the size of the allocation box and the size of the value itself
+are stored in the same place in memory, it is impossible to *truncate*
+data in-place without performing a copy.
+*** Why does that matter?
+In practice, this is an important thing to do, because you often
+don't know how big something is going to be until you have finished
+constructing it.
+**** Example 1: Addition
+When performing addition on bignats, we can calulate an upper bound on
+the resulting size (biggest atom plus one).  If the addition overflows
+into the next word, then we need the whole space.  Otherwise, we need
+one less word.
+
+Most operations on natural numbers have this problem.
+**** Example 2: Collecting a list into a Row
+When converting from a list into an array, we don't know in advance how
+big the list is.  The best way to handle this is to allocate some
+reasonable amount of space up-front, and then double the size every time
+we exceed the previous size.
+
+However, at the end, we will have a bigger space than we actually need.
+Without some way to truncate the results, we will need to perform
+*another* copy.
+
+This is true for the jets the perform this operations (Line and Pile),
+and also for any explicit row-construction code written in Blitz.
+**** Example 3: Lazy ByteString Concate with Blitz
+When accumulating results into a bytestring with Blitz to create a buffer.
+When concatenating a stream of bytestrings, for example, we encounter
+the same pattern.  We don't know how big the result is going to be
+until the end, and without some way to perform an in-place truncation
+before freezing, every operation like this will requires a pointless
+final copy.
+** How do we work around this now?
+**** Nat Operations
+For the  natural number jets, we avoid this copy by using a "reserve"
+and "claim". Basically, we don't actually allocate the space, we just
+make sure that the heap *has* enough space for the final allocation.
+We then use this unallocated space as a working buffer to calculate the
+result, calculate the size, and then finally transform that space into
+an actuall heap object only at the end.
+***** What's wrong with this?
+First of all, it makes the interface to GC much more complex and unintuitive.
+
+Second, this only works because there are no other allocations that happen during
+nat construction.  This works in practice, but it adds complex and fragile invariants
+to any code that works with bignums.
+
+Third, this same approach is only available to carefully written native
+procedures, you can't take advantage of this during blitz.
+**** Converting List to Rows
+When converting from a list to a row, we first calculate the length of
+the list, then we allocate a row of the right size, and then we copy
+data into it.
+***** What's wrong with this?
+This avoids the final copy, but it also means that the entire list must
+be materialized before we can begin constructing the resulting array. This
+has bad GC performance with very large lists, because we can't collect
+the earlier parts of the list along the way.
+** How can this be solved?
+By adding an explicit size (in words) to arrays, and an explicit size
+(in bits) to nats, we can truncate these values without changing the
+size of the allocation box.
+*** Doesn't this leave wasted space at the end of objects?
+Yes, but this space can be trimmed during the next GC.  When we copy
+the object to it's location in the new heap, we only need to allocate
+enough space for the actual object size. We support in-place truncation
+only, not expansion, so a truncated object can never reclaim any of the
+space it once had.
+*** Doesn't this waste another word per closure and nat?
+Unfortunatly yes.  However, this penalty only applies to unpinned data.
+
+Once we have an explicit size, we no longer need to retain the GC header
+fore objects within pins on the pins heap.
+
+The result of this will be that laws become one-word smaller on the
+pin heap, and closures and arrays stay the same size.
+
+However, bignats and closures will indeed weigh a an extra word on the
+evaluation heap evaluation heap.
+
+Two of the more extreme cases of this cost are for linked lists, and
+for `Just` values.
+
+- A cons cell previouisly weighed 4 words (GC header, 0 tag, the item, the rest
+  of the list).  After this change it will cost 5.
+
+- A `Just` value previously cost 3 words (GC header, 0 tag, value).
+After this change it will cost 4.
+
+While this cost is very much not trivial,  I suspect that it will be small
+enough to make the above advantages worthwhile.
+** Open Q: can we omit this size information for small closures and nats?
+*** The Closure Case
+Small closures have their logical-size stored in their tag for sizes
+between 1-15.  Can we omit the size field for these cases?
+**** How to evaluate this?
+This is logically possible, but the runtime cost must be evaluated.  This would
+add an additional branch to a lot of different places, and we would need to
+review all of those places in order to get a reasonable estimate of the
+overhead.
+*** The BigNat Case
+Right now, bignats don't include bitsize information in their pointer
+tags. However,  it should be possible to collect this information.
+**** Which sizes can be recorded?
+We have one byte of metadata space, so we could easily record sizes
+64-255, or we could record this information offset by 63 to record sizes
+64-318 (with 0 indicating an explicit size).
+**** How to evaluate this?
+This would add some overhead to every routine that constructs nats, and every
+routine which calculates the size of nats.  However, it would decrease the size
+of small nats (Anything less than 318 bits) by one, and would eliminate an
+indirection when comparing small bignats.
+
+*** Additional Thoughts
+We did origionally use tag information like this, but it made things
+slower and more complex.  However, the chance to save a word for small
+nats and arrays might make this worthwhile again.

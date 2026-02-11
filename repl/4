@@ -1,0 +1,20 @@
+= "Pin"
+<{Pin 1 (0 <0> 1)}>
+= "Law"
+<{Law 3 (0 (0 (0 <1> 1) 2) 3)}>
+= "Inc"
+<{Inc 1 (0 <2> 1)}>
+= "Case"
+<{Case 6 (0 (0 (0 (0 (0 (0 <3> 1) 2) 3) 4) 5) 6)}>
+= "Die"
+<{Die 1 (0 <die> 1)}>
+=?= 
+    * (Inc 0)
+    * 1
+=?= 
+    * (Law 0 1 2)
+    * (x & 2)
+# block 
+# what ((Law 0 1 2) =?= (x & 2))
+# where sire_00_boot:11
+# why "assertion failed"

@@ -1,0 +1,68 @@
+\documentclass[11pt]{article}
+
+\AtBeginDocument{\pagenumbering{gobble}} % stops page numbers globally
+\pagestyle{empty}
+
+\usepackage{listings}
+\usepackage[T1]{fontenc}
+\usepackage{textcomp}
+\usepackage{lmodern} % Latin Modern family (vectorized Computer Modern)
+\usepackage{microtype}
+\usepackage[paperwidth=210mm,paperheight=2000mm,margin=15mm]{geometry}
+\usepackage{parskip}
+\usepackage{needspace}
+\usepackage[colorlinks=true,linkcolor=blue]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  xleftmargin=1em,   % indent from left
+}
+
+\lstdefinelanguage{asm}{
+  morecomment=[l]{\#},
+}
+
+\lstset{
+  language=asm,
+  basicstyle=\ttfamily\small,
+  commentstyle=\color{black},
+  tabsize=8,
+  breaklines=false,
+  captionpos=b
+}
+
+\lstdefinelanguage{Haskell}{
+  morekeywords={case,of,if,then,else,data,type,class,where,do,let,in},
+  sensitive=true,
+  morecomment=[l]--,
+  morecomment=[n]{\{-}{-\}},
+  morestring=[b]",
+}
+
+\lstdefinestyle{haskellstyle}{
+  backgroundcolor=\color{backcolour},
+  commentstyle=\color{codegreen},
+  keywordstyle=\color{blue},
+  numberstyle=\tiny\color{codegray},
+  stringstyle=\color{codepurple},
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  numbers=left,
+  numbersep=5pt,
+  showstringspaces=false,
+  tabsize=2,
+}
+
+\lstnewenvironment{asm}[1][] % optional args pass through
+  {\lstset{language=asm,#1}}
+  {}
+
+\lstnewenvironment{asmdata}[1][] % optional args pass through
+  {\lstset{language=asm,#1}}
+  {}
+
+\lstnewenvironment{clang}[1][]
+                  {\lstset{language=C,#1}}
+                  {}

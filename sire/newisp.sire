@@ -1,0 +1,1237 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### newisp <- primop
+
+:| primop
+:| newboot [{?} {??} {@} {=} {,} {&}]
+
+Compare=Cmp
+Sap=Sap2
+
+= (Seq2 a b c)
+| Seq a
+| Seq b
+c
+
+= (Seq3 a b c d)
+| Seq a
+| Seq b
+| Seq c
+d
+
+; TODO: use a buffer instead of the read wrapper (slated for removal)
+; The buffer should be 8-wide because otherwise it would be direct.
+; Right now, we always pass the fd and last-read character around.
+; Instead, just pass a buffer around with the last-read character
+; in it's first byte, and then read another character by doing a
+; syscall requesting a read of one byte into the buffer.
+
+; TODO: Build an array macro.
+; TODO: Build destructuring macros.
+; TODO: Added the jetops primitive to both runtimes.
+; TODO: Replace primop dependencies with jetop wrappers.
+
+= (xtry f x)             | ##8  | 0 f x
+= (xwrite fd nat sz off) | ##9  | 0 fd nat sz off
+= (xnewline fd)          | xwrite fd 10 1 0
+
+= (xwriteAll fd nat remain offset)
+| And remain
+@ wrote  |  xwrite fd nat remain offset
+@ offset | Add offset wrote
+@ remain | Sub remain offset
+| Seq3 wrote offset remain
+| xwriteAll fd nat remain offset
+
+(NIL=0)(CONS=0)(lcons=0)
+
+= (xputstr nat)         | xwriteAll 1 nat Bytes-nat 0
+= (xputstrLn nat)       | Seq (xputstr nat) (xnewline 1)
+= (xread fd nat sz off) | ##10 | 0 fd nat sz off
+= (lgenfrom i n f)      | And (Lt i n) | CONS f-i | lgenfrom Inc-i n f
+= (lgen n f)            | lgenfrom 0 n f
+= (gen n f)             | Row 0 n (lgen n f)
+= (min x y)             | If (Gt x y) y x
+= (slash v s e)         | gen (Sub e s) i&(Ix (Add s i) v)
+= (slice v s e)         | slash v s (min e | Sz v)
+= (drop n v)            | slice v n (Sz v)
+= (take n v)            | slice v 0 n
+= (map f v)             | gen Sz-v x&(f | Ix x v)
+
+= (weld x y)
+@ xw | Sz x
+@ yw | Sz y
+| gen (Add xw yw)
+& i
+| If (Lt i xw) (Ix i x)
+| Ix (Sub i xw) y
+
+= (foldr f z row)
+^ _ 0 Sz-row
+? (go i rem)
+| Ifz rem z
+| f (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (lintersperse sep list@[x xs])
+^ And list (lcons x (_ xs))
+? (loop list@[x xs])
+| And list
+| (sep, (x, loop xs))
+
+= (**lcase xs nil cons)
+| Ifz xs nil (**cons Ix-0-xs Ix-1-xs)
+
+= (lfoldl f z l)
+| lcase l z
+& (x xs)
+@ fzx (f z x)
+| Seq fzx
+| lfoldl f fzx xs
+
+= (cons x xs)        | weld (0 x) xs
+= (lfoldrix f z l i) | Seq i | lcase l z (x l)&(f i x | lfoldrix f z l Inc-i)
+= (lfoldri f z l)    | lfoldrix f z l 0
+= (lsing x)          | CONS x 0
+= (lfoldr f z l)     | lcase l z (x l)&(f x | lfoldr f z l)
+= (lmap f l)         | lfoldr (x xs & CONS f-x xs) NIL l
+= (lmapi f l)        | lfoldri (i x xs & CONS f-i-x xs) NIL l
+= (lindexed l)       | lmapi 0 l
+= (lsnoc xs e)       | lcase xs (CONS e NIL) (x xs)&(CONS x | lsnoc xs e)
+= (lweld a b)        | lcase a b (x xs)&(CONS x | lweld xs b)
+= (lcat ls)          | lfoldr lweld NIL ls
+= (lgenfrom i n f)   | And (Lt i n) | CONS f-i | lgenfrom Inc-i n f
+= (lgen n f)         | lgenfrom 0 n f
+= (lrep i n)         | lgen n _&i
+= (stream v)         | foldr 0 NIL v
+= (rowAnd v)         | foldr And 1 v
+= (all f v)          | rowAnd (map f v)
+= (llen l)           | lfoldr (x acc & Inc acc) 0 l
+= (array l)          | Row 0 llen-l l
+
+(lindexed [5 [6 0]] =?= [[0 5] [[1 6] 0]])
+
+= (foldl f z row)
+^ _ z 0 Sz-row
+? (go acc i rem)
+| Seq2 i acc
+| Ifz rem acc
+| go (f acc | Ix i row) (Inc i) (Dec rem)
+
+= (strFoldr f z s)
+@ n (Bytes s)
+^ _ 0
+? (go i)
+| If (Ge i n) z
+| f (Load8 i s) (go Inc-i)
+
+= (strWeld a b) | Add (Lsh b (Lsh Bytes-a 3)) a
+
+( strWeld "foo" "bar" =?= "foobar" )
+
+= (strCat xs)   | foldl strWeld 0 xs
+= (strAll f s)  | strFoldr (c k & And f-c k) 1 s
+
+= (foldrRev f z row)
+^ _ Sz-row
+? (go rem)
+| Ifz rem z
+@ i Dec-rem
+| f (Ix i row) (go i)
+
+= (streamRev v) | foldrRev 0 NIL v
+= (rev row)     | Row 0 Sz-row streamRev-row
+= (arrayRev l)  | rev (array l)
+= (decimal n)   | And n | (Mod n 10, decimal (Div n 10))
+= (showNat n)   | Ifz n "0" | strCat | arrayRev | lmap (Add "0") | decimal n
+= (lstrcat ss)  | lfoldl strWeld 0 ss
+= (ldrop n l)   | Seq l | Ifz n l (ldrop Dec-n Ix1-l)
+
+(NO=0)(YES=1)
+
+;;; Character Classes ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (strGen n f)
+^ _ 0 0
+? (loop acc i)
+| Seq acc
+| If (Ge i n) acc
+| loop (Store8 i f-i acc) Inc-i
+
+dquote={"}             ;;;;   " (Hack around issues with my vim config)
+
+= (explode str) | gen Bytes-str i&(Load8 i str)
+
+= (packClass str)
+| foldl (acc i & Set i acc) 0 explode-str
+
+= (unpackClass str)
+@ n (Bits str)
+^ array (_ 0)
+? (go i)
+| And (Lt i n)
+@ rest (go Inc-i)
+| If (Test i str) [i rest] rest
+
+lowers="abcdefghijklmnopqrstuvwxyz"
+uppers="ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+digits="0123456789"
+specials="!#$%&'*+,-./:=?@\^_`|~<>"
+matchers="()[]{}"
+alphaNums=(strCat [lowers uppers digits])
+(tab=9)(newline=10)(space=32)
+spaces=(strCat [tab newline space])
+semi=";"
+
+= symChrs | packClass | strCat [lowers uppers digits specials]
+= spcChrs | packClass | strCat [spaces]
+= natChrs | packClass | strCat [digits]
+= prnChrs | packClass | strCat [alphaNums specials matchers spaces semi]
+= opnChr  | packClass | "([{"
+
+= (isNatChr c)  | Test c natChrs
+= (isSymChr c)  | Test c symChrs
+= (isSpcChr c)  | Test c spcChrs
+= (isPrint c)   | Test c prnChrs
+= (strNone f s) | strAll c&(Nil f-c) s
+
+=?= (strCat unpackClass-symChrs)
+  | strWeld "!#$%&'*+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "\^_`abcdefghijklmnopqrstuvwxyz|~"
+
+( strAll  isSymChr "abcDEF345_^!'"               =?= 1)
+( strNone isSymChr " ()[]{};"                    =?= 1)
+( strNone isNatChr  "abcdefghijklmnopqrstuvwxyz" =?= 1)
+( strNone isNatChr  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" =?= 1)
+( strAll  isNatChr  "01234556789"                =?= 1)
+( strNone isNatChr  "_~!@#$%^&*-=|/\:?,."        =?= 1)
+( strNone isNatChr  " ()[]{};"                   =?= 1)
+
+( all isSpcChr           [" " 9 10] =?= 1 )
+( all x&(Nil isSpcChr-x) ["a" "("]  =?= 1 )
+
+
+;;; ADT Representation ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (PAREN xs)  | xs
+= (CURLED xs) | 0 "CURLED" xs
+= (BRACED xs) | 0 "BRACED" xs
+
+(**SYM x = x)(EXPR=0)(VAL=1)
+
+= (**wispCase x@[v] val sym exp)
+@ exprCase
+    | Ifz (Eq 2 (Sz x))        | exp 0 x
+    | If (Eq "BRACED" (Ix0 x)) | exp 1 Ix1-x
+    | If (Eq "CURLED" (Ix0 x)) | exp 2 Ix1-x
+    | exp 0 x
+| Case3 Hd-x exprCase (**val v) (**sym x)
+
+
+;;; Plan To Wisp ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(const a b)=a
+
+= (pinWisp planWisp deep x)
+@ full (planWisp deep x)
+@ n full
+@ p full
+@ l | ["CURLED" [(1 Name-x) (1 Arity-x) ".."]]
+@ a | cons (planWisp deep Hd-x) (map (const "..") x)
+| 0 "PIN"
+| If deep full
+| Case4 (Type x) n p l a
+
+( pinWisp "x" NO 5       =?= ["PIN" ("x" 0 5)]     )
+( pinWisp "x" NO (Pin 5) =?= ["PIN" ("x" 0 Pin-5)] )
+( pinWisp "x" NO (x&x)   =?= ["PIN" ["CURLED" [1-0 1-1 ".."]]] )
+
+= (planWisp deep x)
+@ r (planWisp deep)
+@ nat | VAL x
+@ law | CURLED [(r Name-x) (r Arity-x) (r Body-x)]
+@ pin | PAREN (pinWisp planWisp deep Unpin-x)
+@ app | PAREN | cons (planWisp deep Hd-x) | map planWisp-deep x
+| Case4 Type-x nat pin law app
+
+
+;;; Line Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (wispShowWrap t rest)
+@ az | Case3 t "()" "[]" "{}"
+@ a  | Load8 0 az
+@ z  | Load8 1 az
+| Seq2 a z
+| lcons a (lsnoc rest z)
+
+= (wispShowVal deep wispShowLazy v)
+| Ifz IsNat-v
+    | lcons "#"
+    | wispShowLazy deep (planWisp deep v)
+| If (Or (Lt v 256) (Nil (strAll isPrint v)))
+    | lsing showNat-v
+| [dquote [v [dquote []]]]
+
+= (wispShowLazy deep x)
+| wispCase x (wispShowVal deep wispShowLazy) lsing
+& (t ps)
+| wispShowWrap t
+| lcat
+| lintersperse (lsing " ")
+| lmap wispShowLazy-deep stream-ps
+
+= (wispShow deep x)
+| lstrcat | wispShowLazy deep x
+
+( wispShow 1 PAREN-[]                     =?= "()"       )
+( wispShow 1 SYM-"a"                      =?= "a"        )
+( wispShow 1 (BRACED (SYM "f", SYM "x"))  =?= "[f x]"    )
+( wispShow 1 (CURLED (SYM "f", SYM "x"))  =?= "{f x}"    )
+( wispShow 1 (PAREN (SYM "f", SYM "x"))   =?= "(f x)"    )
+( wispShow 1 (PAREN (SYM "f", SYM "x"))   =?= "(f x)"    )
+( wispShow 1 (PAREN (SYM "f", VAL 3))     =?= "(f 3)"    )
+( wispShow 1 VAL-(##2)                    =?= "#(PIN 2)" )
+( wispShow 1 VAL-(x&x)                    =?= "#{0 1 1}" )
+
+
+;;; Pretty Print ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (wispPrettyWrap t rest)
+@ az | Case3 t "()" "[]" "{}"
+@ a  | Load8 0 az
+@ z  | Load8 1 az
+| Seq2 a z
+| lcons a (lsnoc rest z)
+
+= (wispPrettyVal deep wispPrettyLazy d v)
+| Ifz IsNat-v
+    | lcons "#"
+    | wispPrettyLazy deep d ( v)
+| If (Or (Lt v 256) (Nil (strAll isPrint v)))
+    | lsing [showNat-v]
+| [dquote [v [dquote 0]]]
+
+= (fits rem more@[s ss])
+| And rem
+| Ifz more 1
+| fits (Sub rem Bytes-s) ss
+
+(indent n)=(| lstrcat | lcons 10 | lrep " " n)
+
+(indent 3 =?= strWeld 10 "   ")
+
+= (wispPrettyLazyExp wispPrettyLazy deep d x t ps)
+@ d           | Inc d
+@ z           | Sz ps
+| Ifz z       | ##PrettyEr ("impossible" d z x)
+| If (Eq 1 z) | ##PrettyEr ("impossible" d z x)
+| wispPrettyWrap t
+| lcat
+| lintersperse lsing-(indent d)
+| lmap wispPrettyLazy-deep-d stream-ps
+
+= (wispPrettyLazy deep d x)
+@ oneline | wispShowLazy deep x
+| lsing
+| lstrcat
+| If (fits 60 oneline) oneline
+| wispCase x (wispPrettyVal deep wispPrettyLazy d) lsing
+| wispPrettyLazyExp wispPrettyLazy deep d x
+
+= (wispPretty deep x)
+| lstrcat | wispPrettyLazy deep 0 x
+
+( wispPretty 1 (PAREN [])                  =?= "()"       )
+( wispPretty 1 SYM-"a"                     =?= "a"        )
+( wispPretty 1 (BRACED (SYM "f", SYM "x")) =?= "[f x]"    )
+( wispPretty 1 (CURLED (SYM "f", SYM "x")) =?= "{f x}"    )
+( wispPretty 1 (PAREN (SYM "f", SYM "x"))  =?= "(f x)"    )
+( wispPretty 1 (PAREN (SYM "f", SYM "x"))  =?= "(f x)"    )
+( wispPretty 1 (PAREN (SYM "f", VAL 3))    =?= "(f 3)"    )
+( wispPretty 1 VAL-(##2)                   =?= "#(PIN 2)" )
+( wispPretty 1 VAL-(x&x)                   =?= "#{0 1 1}" )
+
+;;; Reader ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (xreadc fd)
+@ r | xread fd 256 1 0
+| Ifz (Eq 1 (Hd r)) 0
+| Trunc8 (Ix0 r)
+
+= (loadNat acc str)
+| Ifz str acc
+| Seq acc
+| loadNat
+    (Add (Sub Trunc8-str "0") (Mul 10 acc))
+    (Rsh str 8)
+
+( loadNat 0 "01230" =?= 1230 )
+
+(isNatStr str = strAll isNatChr str)
+
+= (wispReadSym o fd acc)
+@ c | xreadc fd
+| Seq2 o acc
+| Ifz isSymChr-c
+    | Sap c
+    | If isNatStr-acc | Sap VAL (loadNat 0 acc)
+    | acc ; symbol
+| wispReadSym (Add o 8) fd
+| Add acc (Lsh c o)
+
+; TODO: make wispEatSpace also eat comments so that ending a file with
+; a comment is not an error.
+
+= (wispEatSpace fd c)
+| Ifz isSpcChr-c c | wispEatSpace fd xreadc-fd
+
+= (wispReadSymbol wispRead fd c)
+@ r1@[s] | wispReadSym 8 fd c
+@ c      | Hd r1
+| Ifz (Test c opnChr) r1
+@ r2@[x] | wispRead fd c
+@ c      | Hd r2
+| Sap c [s x]
+
+= (unexpected wispRead fd c) | ##ReadErr ("unexpected" c)
+= (ignore wispRead fd c)     | wispRead fd (xreadc fd)
+
+= (wispReadNested mk end wispRead fd _)
+^ _ [] fd (xreadc fd)
+? (loop acc fd c)
+@ r@[x] (wispRead fd c)
+| Seq acc
+| If isSpcChr-c | ignore loop-acc fd c
+| If (Eq c end) | Sap xreadc-fd (mk acc)
+| Seq x
+| loop (acc x) fd Hd-r
+
+= commentTable
+| strGen 128
+& c
+| And c
+| If (Eq c newline) | 1
+| 2
+
+= (wispComment wispRead fd c)
+@ c (xreadc fd)
+^ Ix (Load8 c commentTable) _ fd c
+| 0 (unexpected 0)
+    wispRead
+    (wispComment wispRead)
+
+= (expReadStrLoop fd o acc)
+@ c (xreadc fd)
+| Seq acc
+| Ifz c            | unexpected 0 fd c
+| If (Eq c dquote) | Sap (xreadc fd) (VAL acc)
+| expReadStrLoop fd (Add 8 o) (Add acc (Lsh c o))
+
+= (expReadStr _ fd _)
+| expReadStrLoop fd 0 0
+
+= expTable
+| strGen 128
+& c
+| If isSpcChr-c    | 1
+| If (Eq dquote c) | 2
+| If (Eq ";" c)    | 3
+| If (Eq "(" c)    | 4
+| If (Eq "[" c)    | 5
+| If (Eq "{" c)    | 6
+| If isSymChr-c    | 7
+| 0
+
+= (wispRead fd c)
+^ Ix (Load8 c expTable) _ wispRead fd c
+| 0 unexpected
+    ignore
+    expReadStr
+    wispComment
+    (wispReadNested PAREN  ")")
+    (wispReadNested BRACED "]")
+    (wispReadNested CURLED "}")
+    wispReadSymbol
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (assert msg bool k)
+| If bool k
+| ##AssertionFailed msg
+
+= (**assert msg bool k) k
+
+= (readSig sig)
+| assert ("readSig" sig)
+    | And (Eq 0 Hd-sig)
+    | And (Sz sig)
+    | And (all IsNat sig)
+    | And (all x&(Ge x 1) sig)
+| sig
+
+; TODO: validate lets
+= (loadLet x)   | Ix1 x (Ix2 x)
+= (isLetExpr x) | (And (Eq 3 Sz-x) (Eq "@" Ix0-x))
+
+= (loadWispFunction sxp@[_ sig])
+| assert "loadWispFunction"
+    | And (Nil Hd-sxp)
+    | And (Ge Sz-sxp 3)
+    | And (Eq "fn" Ix0-sxp)
+@ lets Init-(drop 2 sxp)
+| (readSig sig, map loadLet lets, Last sxp)
+
+=?= loadWispFunction-["fn" ["f" "x"] "x"]
+  | 0 ["f" "x"] [] "x"
+
+=?=   | loadWispFunction
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | 0 ["f" "x"]
+      ("xx" ["x" "x"], "xxxx" ["xx" "xx"])
+      ["x" "xx" "xxxx"]
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+nullenv=0
+
+= (getenv key x@[k v m l r])
+| And x
+| Case3 (Compare key k)
+    (getenv key l)
+    x
+    (getenv key r)
+
+= (putenv key val mac x@[k v m l r])
+| Ifz x [key val mac]
+| Case3 (Compare key k)
+  [k v m (putenv key val mac l) r]
+  [key val mac l r]
+  [k v m l (putenv key val mac r)]
+
+= (testenv seq)
+| foldl (e x & putenv x x x e) nullenv seq
+
+( testenv-[5]    =?= [5 5 5]                      )
+( testenv-[5 4]  =?= [5 5 5 [4 4 4] 0]            )
+( testenv-[5 6]  =?= [5 5 5 0 [6 6 6]]            )
+( testenv-[5 6 7] =?= [5 5 5 0 [6 6 6 0 [7 7 7]]] )
+( testenv-[5 6 1] =?= [5 5 5 [1 1 1] [6 6 6]]     )
+
+( putenv 7 2 2 testenv-[5 6 7] =?= [5 5 5 0 [6 6 6 0 [7 2 2 0 0]]] )
+
+( getenv 4 testenv-[5 6 7] =?= 0 )
+( getenv 5 testenv-[5 6 7] =?= [5 5 5 0 [6 6 6 0 [7 7 7]]] )
+( getenv 6 testenv-[5 6 7] =?= [6 6 6 0 [7 7 7]] )
+( getenv 7 testenv-[5 6 7] =?= [7 7 7] )
+( getenv 8 testenv-[5 6 7] =?= 0 )
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (mkenv seq)
+| foldl (e [k v m] & putenv k v m e) nullenv seq
+
+= (funcEnv [sig lets body])
+@ step (env [ix nm] & putenv nm ix 0 env)
+| lfoldl step nullenv
+| lindexed | lweld stream-sig | lmap Hd stream-lets
+
+=?=   | funcEnv
+      | loadWispFunction
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | mkenv [["f" 0] ["x" 1] ["xx" 2] ["xxxx" 3]]
+
+= (resolveExpr g l x)
+@ exp
+    | Case3 Sz-x (1 0) (resolveExpr g l Ix0-x)
+    | map (resolveExpr g l) x
+@ val
+    | x
+@ sym
+    @ gb (getenv x g)
+    @ lb (getenv x l)
+    | If lb | Ix1 lb      ;  variable reference number
+    | If gb | 1 (Ix1 gb)  ;  constant
+    | ##Throw ("undefined-reference" x)
+| Case3 Hd-x exp val sym
+
+=?=   | funcEnv
+      | loadWispFunction
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" "xx" "xxxx"]
+  | mkenv [["f" 0] ["x" 1] ["xx" 2] ["xxxx" 3]]
+
+= (Type x)      | ##3 _&1 (_ _ _)&2 (_ _)&3 0 _&0                x
+
+= (isCodeShaped top maxref v)
+| Case4 Type-v
+  (Le v maxref)              ; Nat
+  0                          ; Pin
+  0                          ; Law
+| Case3 (Dec Sz-v)
+    (Eq 1 Hd-v)                             ; h[a]
+    (Or (Nil Hd-v) (And top (Eq 1 (Hd v)))) ; h[a b]
+    0                                       ; h[..]
+
+( isCodeShaped 0 5 (1 9)   =?= 1 )
+( isCodeShaped 1 5 (1 0 0) =?= 1 )
+( isCodeShaped 0 5 (1 0 0) =?= 0 )
+( isCodeShaped 1 5 (0 0 0) =?= 1 )
+( isCodeShaped 0 5 (0 0 0) =?= 1 )
+( isCodeShaped 0 5 0       =?= 1 )
+( isCodeShaped 0 5 5       =?= 1 )
+( isCodeShaped 0 5 6       =?= 0 )
+
+= (mkLawLit top maxref v)
+| If (isCodeShaped top maxref v) (0 v) v
+
+= (mkLawExpr top maxref x@[a b])
+| If IsNat-x x
+| If (Hd x)
+    | mkLawLit top maxref a
+| If (Eq 1 (Sz x))
+    | mkLawExpr top maxref a
+| 0 (mkLawExpr NO maxref Init-x)
+    (mkLawExpr NO maxref Last-x)
+
+= (mkLawBody maxRef lets@[l ls] body)
+| Ifz lets (mkLawExpr YES maxRef body)
+| 1 (mkLawExpr NO maxRef l)
+| mkLawBody maxRef ls body
+
+= (funcLaw globals func@[sig lets body])
+@ locals | funcEnv func
+@ name   | Ix0 sig
+@ arity  | Dec Sz-sig
+@ maxRef | Add arity Sz-lets
+| Law Ix0-sig arity
+| mkLawBody maxRef
+    | lmap x&(resolveExpr globals locals Ix0-x) stream-lets
+| resolveExpr globals locals body
+
+= (doRow st f row)
+^ foldl _ [st 0] row
+& ([st acc] item)
+@ [st x] (f st item)
+| (st, acc x)
+
+= (getmacro [nex glo] sym)
+@ r (getenv sym glo)
+| And (Ix2 r) ; macro flag must be set
+| Ix1 r
+
+= (expandExpr ws x@[hed])
+@ keep  | (ws, x)
+@ recur | doRow ws expandExpr x
+@ exp   | Ifz x keep
+        | Ifz IsNat-hed recur
+        @ m (getmacro ws hed)
+        | Ifz m recur
+        @ [ws x] (Force (m ws x))
+        | expandExpr ws x
+| Case3 Hd-x exp keep keep
+
+(Apply expr)=(Coup Ix0-expr (drop 1 expr))
+
+( Apply [Add 2 3] =?= 5 )
+
+= (wisp ws x)
+@ [ws@[_ glo] x]
+    | expandExpr ws x
+@ exp
+    | Case3 Sz-x 0 (wisp ws Ix0-x)
+    @ (ws, vals) | doRow ws wisp x
+    | Force (ws, Apply vals)
+@ val
+    | (ws, Ix0 x)
+@ sym
+    @ r@[_ val] | getenv x glo
+    | Ifz r (##Throw ("undefined-reference" x))
+    | (ws, val)
+| Case3 Hd-x exp val sym
+
+= (expandLet ws let@[x])
+@ [ws x] (expandExpr ws x)
+| (ws, Up 0 x let)
+
+= (expandLets ws lets) | doRow ws expandLet lets
+
+= (funcExpand ws f@[sig lets body])
+@ [ws lets] | expandLets ws lets
+@ [ws body] | expandExpr ws body
+| (ws, [sig lets body])
+
+= (ticMacro ws x)
+| Ifz (Eq 2 (Sz x))
+    | ##Throw ("ticMacro" "multiple args")
+| (ws, 1 Ix1-x)
+
+= (fnMacro ws f)
+@ [ws@[nex glo] fv] | funcExpand ws | loadWispFunction f
+| 0 ws
+| 1 (funcLaw glo fv)
+
+= (defineMacro isMacro ws x@[self sig val])
+@ n Sz-x
+| If (And (Eq 3 n) (IsNat sig))
+    @ [ws@[nex glo] value]
+         | Force | wisp ws val
+    @ glo
+        | putenv sig value isMacro glo
+    | [[nex glo] (1 value)]
+| If (And (Ge n 3) (Nil Hd-sig))
+    ^ (ws, (self, Ix0 sig, (1 Pin, _)))
+    | weld ["fn" sig] (drop 2 x)
+| ##defineMacro "bad"
+
+defvalueMacro=(defineMacro 0)
+defmacroMacro=(defineMacro 1)
+
+= (doBlock result ws list@[l ls])
+| Ifz list (ws, result)
+@ (ws, x) | wisp ws l
+| doBlock 1-x ws ls
+
+= (blockMacro ws x)
+| doBlock 1-0 ws | ldrop 1 | stream x
+
+= (putexp deep x)              | xputstrLn (wispPretty deep x)
+= (putval deep x)              | putexp deep (planWisp deep x)
+= (wispPutMsg msg k)           | Seq (xputstrLn msg) k
+= (wispPutVal deep x k)        | Seq (putval deep x) k
+= (wispPutExp deep x k)        | Seq (putexp deep x) k
+= (wispPutMsgVal msg deep x k) | wispPutMsg msg | wispPutVal deep x k
+= (wispPutMsgExp msg deep x k) | wispPutMsg msg | wispPutExp deep x k
+
+; These lines disable the printer and rely instead on debug output in
+; order to reduce code size.  Comment them out if you want the printer.
+
+; (xtrace m x)                   | ##4 (0 m x)
+; wispPretty                     | "show"
+; (**wispPutExp deep x k)        | xtrace x k
+; (**wispPutVal deep x k)        | xtrace x k
+; (**wispPutMsgVal msg deep x k) | xtrace (msg x) k
+
+= (assertMacro ws expr@[self x])
+; wispPutMsgExp "assert" NO expr
+@ out@[ws xv] | wisp ws x
+| If (Eq 1 xv) (ws, 1 0)
+| ##ASSERT (1 "!=" x "in" (wispPretty NO expr))
+
+; TODO: allow string literals for selfref so that we can have an empty
+; name for anons instead of _.
+
+= (splitArrow i items)
+@ x (Ix i items)
+| Ifz x          | ("_", Init items, [(Last items)])
+| If (Eq x ".")  | ("_", take i items, drop Inc-i items)
+| If (Eq x "->") | ("_", take i items, drop Inc-i items)
+| If (Eq x "=>") | (Ix0 items, drop 1 (take i items), drop Inc-i items)
+| splitArrow Inc-i items
+
+= (splitCurly items@[captures@[ccurl caps]])
+| If (Eq "CURLED" ccurl)
+    @ (self, args, body) | splitArrow 0 (drop 1 items)
+    | (caps, self, args, body)
+| cons 0 (splitArrow 0 items)
+
+= (curlyMacro ws x@[curly items])
+@ [caps self args body] (splitCurly items)
+| 0 ws
+| If caps
+    | cons | weld ["fn" (cons self (weld caps args))] body
+    | caps
+| weld ("fn", cons self args) body
+
+=?= (curlyMacro 9 ["CURLED" ["a" "b" "->" "c" "d"]])
+  [9 ["fn" ["_" "a" "b"] "c" "d"]]
+
+= env0
+| mkenv
+| 0 ["assert" assertMacro 1]
+    ["fn" fnMacro 1]
+    ["defmacro" defmacroMacro 1]
+    ["=" defvalueMacro 1]
+    ["CURLED" curlyMacro 1]
+    ["block" blockMacro 1]
+    ["<0>" Pin 0]
+
+= testenv
+| putenv "a"        9             0
+| putenv "'"        ticMacro      1
+| putenv "defvalue" defvalueMacro 1
+| env0
+
+=?=   | fnMacro [0 testenv]
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["f" "x" "xx" "xxxx" "a"]
+  | 0 [0 testenv]
+  | 1
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | [[[[0 1] 2] 3] 9]
+
+=?=   | fnMacro [0 testenv]
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["'" ["f" "x" "xx" "xxxx" "a"]]
+  | 0 [0 testenv]
+  | 1
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | ["f" "x" "xx" "xxxx" "a"] ; quoted
+
+;; Function with sub-fn via macro-expansion.
+
+=?=   | wisp [0 testenv]
+      | 0 "fn"
+          ["f" "x"]
+          ["@" "xx" ["x" "x"]]
+          ["@" "xxxx" ["xx" "xx"]]
+          ["x" ["fn" ["eat" "x"] "eat"]]
+  | 0 [0 testenv]
+  | Law "f" 1
+  | 1 [1 1]
+  | 1 [2 2]
+  | [1 (eat a ? eat)]
+
+=?=   | wisp [0 testenv]
+      | 0 "block"
+          ["defvalue" "x" 1-3]
+          ["fn" ["retx" "_"] ["_"]]
+  | 0 [0 (putenv "x" 3 0 testenv)]
+      (retx a ? a)
+
+=?=   | wisp [0 testenv]
+      | 0 "block"
+          ["defvalue" "eat" ["fn" ["eat" "_"] "eat"]]
+          ["eat" 1-3]
+  | 0 [0 (putenv "eat" (eat _)?eat 0 testenv)]
+      (eat a ? eat)
+
+=?=   | wisp [0 testenv]
+      | 0 "block"
+          ["defvalue" ["eat" "_"] "eat"]
+          ["eat" 1-3]
+  | 0 [0 (putenv "eat" (eat _)??eat 0 testenv)]
+      (eat a ?? eat)
+
+=?=   | wisp [0 testenv]
+      | 0 "CURLED"
+          ["a" "b" "a"]
+  | 0 [0 testenv]
+      (_ a b ? a)
+
+= (wispRepl ws fd c0)
+@ c1              | wispEatSpace fd c0
+@ r@[x]           | wispRead fd c1
+@ c2              | Hd r
+@ res@[[ws2 out]] | xtry wisp-ws x
+| And c1
+| Seq x
+| wispPutExp 0 x
+| Ifz Hd-res
+    | wispPutVal 0 out
+    | wispRepl ws2 fd c2
+| wispPutMsgVal "ERROR" 0 res
+| 1
+
+= (main cli)
+| wispRepl [0 testenv] 0 (xreadc 0)
+
+
+;;; Saving code;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+wispMain=main
+
+E=0
+Z=1
+C=2
+A=3
+
+= (ipin ival k item)
+| Ifz item Z-k
+| Z-(ival item C-k)
+
+= (ilaw ival k n a b)
+| Z | A 1 | C | A n | C | A a | C | ival b C-k
+
+= (irow ival o i k)
+| If (Ge i Sz-o) k
+| ival (Ix i o) C-(irow ival o Inc-i k)
+
+= (iapp ival o k _ _)
+| ival Hd-o (irow ival o 0 k)
+
+= (ival o k)
+@ p ipin-ival-k
+@ l ilaw-ival-k
+@ a iapp-ival-o-k
+@ z (A o k)
+@ m _&((A o k))
+| ##3 p l a z m o
+
+(succ x)=(##2 x)
+
+a=0
+(ival 3       E =?= (| A 3 | E))
+a=0
+(ival ##3     E =?= (| Z | A 3 | C | E))
+a=0
+(ival succ    E =?= (| Z | Z | A 1 | C | A "succ" | C | A 1 | C | A 0 | Z | A 2 | C | C | A 1 | C | C | C E))
+a=0
+(ival (3 4)   E =?= (| A 3 | A 4 | C | E))
+a=0
+(ival (3 4 5) E =?= (| A 3 | A 4 | C | A 5 | C | E))
+a=0
+(ival x&x     E =?= (| Z | A 1 | C | A 0 | C | A 1 | C | A 1 | C | E))
+a=0
+
+= (cell [x [f more]])
+@ !fx (f x)
+| [fx more]
+
+= (spair !a !b)
+| [a b]
+
+= (rebuild stack code)
+| Seq stack
+| Ifz Hd-code       | stack
+| If (Eq 1 Hd-code) @ [k]   code | rebuild (spair ##0 stack) k
+| If (Eq 2 Hd-code) @ [k]   code | rebuild (cell stack)      k
+|                   @ [n k] code | rebuild (spair n stack)   k
+
+( rebuild 0 ival-(##3 1)-E     =?=  [(##3 1) 0]    )
+( rebuild 0 ival-(##3)-E       =?=  [##3 0]        )
+( rebuild 0 ival-(x&x)-E       =?=  [x&x 0]        )
+( rebuild 0 ival-Inc-E         =?=  [Inc 0]        )
+( rebuild 0 ival-(I x ?? x)-E  =?=  [(I x ?? x) 0] )
+
+= (count !acc code)
+| Ix Hd-code
+| 0 acc
+    (@ [k]   code | count acc     k)
+    (@ [k]   code | count Inc-acc k)
+    (@ [n k] code | count acc     k)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+( rebuild 0 ival-env0-E       =?= [env0 0]       )
+( rebuild 0 ival-wispRead-E   =?= [wispRead 0]   )
+( rebuild 0 ival-wispPretty-E =?= [wispPretty 0] )
+( rebuild 0 ival-wisp-E       =?= [wisp 0]       )
+( rebuild 0 ival-wispMain-E   =?= [wispMain 0]   )
+
+wispCount=(count 0 ival-wispMain-E)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= sbEmpty        | 0
+= (**sbSing k v) | 1 k v 0 0
+
+sbSize=Hd
+
+= (sb k v l r)
+@ sz | Inc (Add sbSize-l sbSize-r)
+| sz k v l r
+
+= (**sbOpen x k)
+| **k (Hd x) (Ix 0 x) (Ix 1 x) (Ix 2 x) (Ix 3 x)
+
+= (**sbCase x empty node)
+| Ifz x empty
+| sbOpen x node
+
+L=sbSing
+N=sb
+E=0
+
+= (singleL key val a right)
+| sbOpen right
+& (_ koy vol b c)
+| sb koy vol (sb key val a b) c
+
+= (singleR key val left c)
+| sbOpen left
+& (_ koy vol a b)
+| sb koy vol a (sb key val b c)
+
+= (doubleL key val a right)
+| sbOpen right
+& (_ rkey rval son d)
+| sbOpen son
+& (_ skey sval b   c)
+| sb skey sval (sb key val a b) (sb rkey rval c d)
+
+= (doubleR key val left d)
+| sbOpen left
+& (_ lkey lval a son)
+| sbOpen son
+& (_ skey sval b c  )
+| sb skey sval (sb lkey lval a b) (sb key val c d)
+
+=?= (singleL 7 7 E (L 8 8))
+    (N 8 8 L-7-7 E)
+
+=?= (singleR 7 7 (L 6 6) E)
+    (N 6 6 E L-7-7)
+
+=?= (singleL 7 7 E (N 8 8 E L-9-9))
+    (N 8 8 L-7-7 L-9-9)
+
+=?= (singleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 8 8 (N 5 5 E L-7-7) L-9-9)
+
+=?= (doubleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 7 7 L-5-5 (N 8 8 E L-9-9))
+
+=?= (doubleR 5 5 (N 2 2 L-1-1 L-3-3) E)
+    (N 3 3 (N 2 2 L-1-1 E) L-5-5)
+
+= (rotateL k v l r)
+| sbOpen r
+& (rz _ _ rl rr)
+| If (Lt sbSize-rl (Mul 2 sbSize-rr)) | singleL k v l r
+|                                     | doubleL k v l r
+
+= (rotateR k v l r)
+| sbOpen l
+& (lz _ _ ll lr)
+| If (Lt sbSize-lr (Mul 2 sbSize-ll)) | singleR k v l r
+|                                     | doubleR k v l r
+
+= (balance k v l r)
+@ lsz | sbSize l
+@ rsz | sbSize r
+@ xsz | Inc (Add lsz rsz)
+@ top | xsz k v l r
+| If (Le (Add lsz rsz) 1) | top
+| If (Ge rsz (Mul 4 lsz)) | rotateL k v l r
+| If (Ge lsz (Mul 4 rsz)) | rotateR k v l r
+|                         | top
+
+= (sbInsert key val x)
+| sbCase x (sbSing key val)
+& (xsz xkey xval left right)
+| Ix (Compare key xkey)
+| 0
+  (balance xkey xval (sbInsert key val left) right)
+  (xsz key val left right)
+  (balance xkey xval left (sbInsert key val right))
+
+NONE=0
+SOME=0
+
+= (sbSearch key tree)
+| sbCase tree NONE
+& (_ k v l r)
+| Ix (Compare key k) (sbSearch key l, SOME v, sbSearch key r)
+
+= (fromList l)
+^ _ 0 l
+? (go !acc l)
+| lcase l acc
+& ([k v] l)
+| go (sbInsert k v acc) l
+
+(derp n)=(| fromList | stream | gen n x&((xx @ Mul Inc-x 11)(xx, xx)))
+
+(sbSearch 11 derp-0 =?= NONE)
+(sbSearch 11 derp-1 =?= SOME-11)
+(sbSearch 11 derp-2 =?= SOME-11)
+(sbSearch 11 derp-3 =?= SOME-11)
+(sbSearch 11 derp-4 =?= SOME-11)
+(sbSearch 11 derp-5 =?= SOME-11)
+(sbSearch 11 derp-6 =?= SOME-11)
+(sbSearch 66 derp-6 =?= SOME-66)
+(sbSearch 77 derp-6 =?= NONE)
+
+=?= derp-2 (N 11 11 E (L 22 22))
+=?= derp-3 (N 22 22 (L 11 11) (L 33 33))
+=?= derp-4 (N 22 22 (L 11 11) (N 33 33 E (L 44 44)))
+=?= derp-5 (N 22 22 (L 11 11) (N 44 44 (L 33 33) (L 55 55)))
+
+(NN x l r)=(N x x l r)
+(LL x)=(L x x)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-55 E LL-66))
+    (derp-6)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-66 LL-55 LL-77))
+    (derp-7)
+
+=?= (sbInsert 2 22 0)
+    (sbSing 2 22)
+
+ex=(NN-4 LL-2 LL-6)
+
+=?= (sbInsert 4 {four} ex)
+    (N 4 {four} (L 2 2) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)
+    (N 4 4 (L 2 {two}) (L 6 6))
+
+=?= (sbInsert 6 {six} ex)
+    (N 4 4 (L 2 2) (L 6 {six}))
+
+=?= (sbInsert 1 {one} ex)
+    (N 4 4 (N 2 2 (L 1 {one}) E) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)   | NN-4 (L 2 {two})            | LL-6
+=?= (sbInsert 3 {three} ex) | NN-4 (NN-2 E (L 3 {three})) | LL-6
+=?= (sbInsert 5 {fiv} ex)   | NN-4 (NN-2 E E)             | NN-6 L-5-{fiv} E
+=?= (sbInsert 6 {six} ex)   | NN-4 LL-2                   | L-6-{six}
+=?= (sbInsert 7 {sev} ex)   | NN-4 LL-2                   | NN-6 E L-7-{sev}
+
+= (deleteFindMax t)
+| sbOpen t
+& (_ k v l r)
+| Ifz r [[k v] l]
+@ [km r2] deleteFindMax-r
+| (km, balance k v l r2)
+
+= (deleteFindMin t)
+| sbOpen t
+& (_ k v l r)
+| Ifz l [[k v] r]
+@ [km l2] deleteFindMin-l
+| (km, balance k v l2 r)
+
+= (glue l r)
+| Ifz l r
+| Ifz r l
+| If (Gt sbSize-l sbSize-r) ([[km m] l2] @ deleteFindMax l)(balance km m l2 r)
+|                           ([[km m] r2] @ deleteFindMin r)(balance km m l r2)
+
+= (**ocase mb non som)
+| Ifz mb non (**som Last-mb)
+
+= (sbAlter f key x)
+@ emptyCase | ocase f-NONE sbEmpty x&(sbSing key x)
+| sbCase x emptyCase
+& (xsz xkey xval l r)
+| Ix (Compare key xkey)
+| 0
+  (balance xkey xval (sbAlter f key l) r)
+    | ocase f-(SOME xval) (glue l r)
+    & (newval)
+    | xsz xkey newval l r
+  (balance xkey xval l (sbAlter f key r))
+
+; What is alterKnown?  Oh, where we know that the key is know to be there (so
+; the function is passed the value not wrapped in a Maybe)
+
+= (sbAlterKnown f key x)
+| sbCase x sbEmpty
+& (xsz xkey xval l r)
+| Ix (Compare key xkey)
+| 0
+  (balance xkey xval (sbAlterKnown f key l) r)
+  (xsz xkey f-xval l r)
+  (balance xkey xval l (sbAlterKnown f key r))
+
+= (sbDel key tree)
+| sbCase tree tree
+& (xsz xkey xval l r)
+| Ix (Compare key xkey)
+| 0
+  (balance xkey xval (sbDel key l) r)
+  (glue l r)
+  (balance xkey xval l (sbDel key r))
+
+(**sbSearchCase k t nf f)=(ocase (sbSearch k t) nf f)
+
+= (pack f x) | Add (Lsh f 32) x
+= (unpack v) | (Rsh v 32, Trunc32 v)
+
+= (newNat igo key nats apps table stack nat code)
+@ nats  | sbInsert nat key nats
+@ table | sbInsert key nat table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldNat igo key nats apps table stack nat code)
+@ res   | sbSearch nat nats
+@ v     | Ix0 res
+@ stack | [v stack]
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (insNat igo [key nats apps table stack] nat code)
+@ res     | sbSearch nat nats
+| Ifz res | newNat igo key nats apps table stack nat code
+|         | oldNat igo key nats apps table stack nat code
+
+= (newApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ apps  | sbInsert htw key   apps
+@ table | sbInsert key [h t] table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ res   | sbSearch htw apps
+@ stack | (Ix 0 res, stack)
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (rawInsApp igo key nats apps table h t stack code)
+@ htw     | pack h t
+@ res     | sbSearch htw apps
+| Ifz res | newApp igo key nats apps table h t stack code
+|         | oldApp igo key nats apps table h t stack code
+
+= (insApp igo [key nats apps table [t [h stack]]] code)
+| **rawInsApp igo key nats apps table h t stack code
+
+= (insPin igo [key nats apps table [i stack]] code)
+| **rawInsApp igo key nats apps table 0 i stack code
+
+= (igo st code)
+| Seq (Force st)
+| Ix Hd-code
+| 0
+   st
+  (@ [c]   code (insPin igo st c))
+  (@ [c]   code (insApp igo st c))
+  (@ [n c] code (insNat igo st n c))
+
+= (intern x)
+| igo [1 0 0 0 0] (ival x E)
+
+= (mapi f row)        | array | lmapi f stream-row
+
+; 3 =?= intern (Foo x y z ?? "Hello World!" ))
+
+= (summarize [keys nats apps table stack])
+| (keys, Hd nats, Hd apps, Hd table, stack)
+
+(= foo | summarize | Force | intern Add)
+(foo =?= [21 5 15 20 [20 0]])
+(= foo | summarize | Force | intern wispMain)
+(foo =?= [59671 226 59444 59670 [59670 0]])
+;foo =?= [115279 179 115099 115278 [115278 0]])

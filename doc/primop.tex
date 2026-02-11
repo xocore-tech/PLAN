@@ -1,0 +1,215 @@
+\input{common}
+
+\title{The Design of the PrimOp Calling Convention of PLAN}
+\author{Sol}
+\date{September 12, 2025}
+
+\begin{document}
+
+\maketitle
+\begin{abstract}
+
+This describes the primop calling convention and provides an in-depth
+rational for the design.
+
+\end{abstract}
+
+\section{Introduction}
+
+PLAN uses the following calling convention for primitive operations.
+This document will discuss why this design was chosen, and what
+important properties it has, which other options failed to provide.
+
+\begin{lstlisting}
+(<0> (0 i))           -> mk_pin(i)
+(<0> (1 n a b))       -> mk_law(n,a,b)
+(<0> (2 p l a z m o)) -> plan_case(p,l,a,z,m,o)
+\end{lstlisting}
+
+This convention replaces the more obvious convention used in earlier
+designs.
+
+\begin{lstlisting}
+(<0> i)           -> mk_pin(i)
+(<1> n a b)       -> mk_law(n,a,b)
+(<2> p l a z m o) -> plan_case(p,l,a,z,m,o)
+\end{lstlisting}
+
+One advantage of the new design is that it makes the arity logic
+simpler. Before, the arity of pinned nats was 3 for
+\textless1\textgreater, 6 for \textless2\textgreater, and 1 for
+everything else. With the new logic, the arity is always 1.
+
+But more importantly, this design is forced by two core constraints:
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  The need to have a shared runtime with a common semantics between PLAN
+  and XPLAN.
+\item
+  The need to enable some basic optimizations when compiling laws which
+  may not yet have been fully normalized (may contain references to lazy
+  data).
+\end{enumerate}
+
+\section{XPLAN and PLAN}\label{xplan-and-plan}
+
+A PLAN runtime is actually a runtime for two different languages at the
+same time: PLAN and XPLAN. PLAN is a lazy, purely functional, frozen
+language with a tiny set of built-in operations. XPLAN is an impure
+functional language with a much larger, growing set of built-in
+operations.
+
+Extending the obvious calling convention to include XPLAN operations
+would require changing the arity:
+
+\begin{lstlisting}
+(<3> x)   = inc(x)
+(<4> x)   = dec(x)
+(<5> x y) = add(x,y)
+\end{lstlisting}
+
+This creates fundamental incompatibilities between PLAN and XPLAN.
+
+\begin{itemize}
+\item
+  A single execution engine cannot be used for both languages since, the
+  graph reduction engine and an optimizing law compiler needs to be able
+  to determine if an application is saturated or not, and this needs to
+  know the arity.
+\item
+  The universe of possible evaluated values changes. For example, the
+  following value can exist in XPLAN, but not in PLAN:
+  \texttt{(\textless{}5\textgreater{}\ 1)}. Enforcing that such values
+  never leak between contexts is not realistic.
+\end{itemize}
+
+Switching to the new convention eliminates all of the essential
+differences between PLAN and XPLAN. PLAN is just an execution mode of
+XPLAN where unlawful operations crash instead of being executed.
+
+\section{Optimizing Laws}\label{optimizing-laws}
+
+Another option that was considered, which avoids constructing and ADT
+for each primop call, was the following:
+
+\begin{lstlisting}
+ARITY(<i:@>) = i+1
+
+(<1> 0 i)           = MkPin(i)
+(<3> 1 n a b)       = MkLaw(n,a,b)
+(<6> 2 p l a z m o) = VCase(p,l,a,z,m,o)
+\end{lstlisting}
+
+This avoids the incompatibility between XPLAN and PLAN by using the
+pinned nat to indicate the arity, and then having the first argument
+identify the operation.
+
+However, this interacts very poorly with support for laziness within
+pins and laws.
+
+In order to demonstrate this, let's look at the code for a wrapper
+function which calls one of these primops.
+
+\begin{lstlisting}
+(Pin x)=(<1> 0 x)
+
+Pin = <{"Pin" 1 [<1>[0] 1]}>
+\end{lstlisting}
+
+The important thing to note here is that the head of the body was
+collapsed into the constant closure
+\texttt{\textless{}1\textgreater{}{[}0{]}}. This is smaller and faster
+than encoding it as
+\texttt{{[}{[}\textless{}1\textgreater{}\ {[}0{]}{]}\ 1{]}}.
+
+The problem is that laws only guarantee that the expression itself is
+evaluated, including evaluating constants to WHNF. So, the law compiler
+cannot assume that the closure parameter is available for inspection, it
+could very well be a thunk:
+
+\begin{lstlisting}
+<1>[thunk]
+\end{lstlisting}
+
+The result is that we cannot reliably recognize calls to primops, which
+destroys a number of very important optimizations.
+
+In contrast, let's look at the law expression within the new
+representation:
+
+\begin{lstlisting}
+(Pin x)=(<0> (0 x))
+
+Pin = <{"Pin" 1 [<0> [[0] 1]]}>
+\end{lstlisting}
+
+As you can see, the pinned number, the constructor tag, and the arity of
+the call are always available for such analysis.
+
+\section{Additional Benefits}\label{additional-benefits}
+
+There are some other slightly useful properties which fall out of this
+design.  Let's start by noting that the the new convention is essentially
+just an uncurried version of the old one:
+
+\begin{lstlisting}
+(<0> i)           -> (<0> (0 i))
+(<1> n a b)       -> (<1> (0 n a b))
+(<2> p l a z m o) -> (<2> (0 p l a z m o))
+\end{lstlisting}
+
+But because PLAN represents arrays using partially applied numbers, all of
+our arrays include a zero tag, which is not used for anything.  Instead,
+we can take advantage of this tag to group calls into ``modules''.
+
+\begin{lstlisting}
+(<0> i)           -> (<0> (0 i))
+(<1> n a b)       -> (<0> (1 n a b))
+(<2> p l a z m o) -> (<0> (2 p l a z m o))
+\end{lstlisting}
+
+Where \textless0\textgreater{} is used for the primitive PLAN values,
+\textless1\textgreater{} is used for direct invocations of jets in
+XPLAN, \textless2\textgreater{} is used for XPLAN effects, etc.
+
+This has some nice advantages:
+
+\begin{itemize}
+\item
+  Many fewer pinned nats. Every pinned nat requires a whole pin on the
+  heap, which is a small but pointless waste of resources.
+\item
+  Each type of operation has its own ``namespace''. We can add new XPLAN
+  effects without needing to renumber other types of effects.
+\end{itemize}
+
+\section{Avoiding Runtime Overhead}\label{avoiding-runtime-overhead}
+
+The new convention is notably less efficient. Instead of simply running
+the operation, every call to a primop must now allocate an ADT, and the
+actual implementation of the primop must inspect this ADT, handle
+edge-cases, and only \emph{then} run the operation. This is pointlessly
+inefficient.
+
+However, if we wrap each primop with a simple function:
+
+\begin{lstlisting}
+(MkLaw n a b)=(<0> (1 n a b))
+\end{lstlisting}
+
+It is extremely simple to recognize and optimize these wrappers, even in
+an extremely dumb interpreter. These wrappers functions can then be
+optimized to directly run the appropriate operations, which removes all
+of the execution overhead.
+
+\section{Conclusion}\label{conclusion}
+
+The new primop calling maintains a common semantics between PLAN and
+XPLAN by keeping the arity logic uniform, while still enabling a simple
+interpreter to make low-overhead calls into primops. In addition, we
+reduce the number of pointless pinned laws, and add the ability to
+namespace our effects into categories.
+
+\end{document}

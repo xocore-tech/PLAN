@@ -1,0 +1,1935 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+
+#### sire_00_boot
+
+= (Pin i)            | ##0 i
+= (Law n a b)        | ##1 n a b
+= (Inc m)            | ##2 m
+= (Case p l a z m o) | ##3 p l a z m o
+= (Die x)            | ##die x
+
+(Inc 0 =?= 1)
+
+(Law 0 1 2 =?= (x & 2))
+
+(Pin 0 =?= ##0)
+
+(Case {p} {l} {a} {z} {m} 0 =?= {z})
+
+(Case {p} {l} {a} {z} {m} (1 2 3) =?= ({a} (1 2) 3))
+
+= (PlanCase p l a n x) | Case p l a n _&n x
+
+= (NatCase z p x)      | Case _&z (_ _ _)&z (_ _)&z z p x
+= (Force x)            | Law 0 1 0-x 0
+= (Seq x y)            | NatCase y _&y x
+= (DeepSeq x y)        | Seq (Force x) y
+= (Trace x y)          | DeepSeq x y
+= (DeepTrace x y)      | DeepSeq x y
+= (IsPin x)            | PlanCase _&1     (_ _ _)&0         (_ _)&0 0 x
+= (IsLaw x)            | PlanCase _&0     (_ _ _)&1         (_ _)&0 0 x
+= (IsApp x)            | PlanCase _&0     (_ _ _)&0         (_ _)&1 0 x
+= (IsNat x)            | PlanCase _&0     (_ _ _)&0         (_ _)&0 1 x
+= (PlanTag x)          | PlanCase _&0     (_ _ _)&1         (_ _)&2 3 x
+= (PinItem x)          | PlanCase i&i     (_ _ _)&0         (_ _)&0 0 x
+= (LawName x)          | PlanCase _&0     (i _ _)&i         (_ _)&0 0 x
+= (LawArgs x)          | PlanCase _&0     (_ i _)&i         (_ _)&0 0 x
+= (LawBody x)          | PlanCase _&0     (_ _ i)&i         (_ _)&0 0 x
+= (Car x)              | PlanCase _&(##0) (n a _)&(##1 n a) (h _)&h 0 x
+= (Cdr x)              | PlanCase i&i     (_ _ b)&b         (_ t)&t 0 x
+= (Eqz x)              | Case _&0 (_ _ _)&0 (_ _)&0 1 _&0 x
+= (Eq1 x)              | NatCase 0 Eqz x
+= (Eq2 x)              | NatCase 0 Eq1 x
+= (Strict n x)         | NatCase x m&(Seq x Strict-m) n
+= (traceId x)          | Trace x x
+= (deepTraceId x)      | DeepTrace x x
+= (**traced tag x)     | Trace (0 tag x) x
+= dTrk                 | DeepTrace
+= trk                  | Trace
+
+(TRUE = 1)(FALSE = 0)
+
+= (If x t e)  | NatCase t _&e (Eqz x)
+= (Ifz x t e) | If x e t
+= (Not x)     | If x 0 1
+= (Bit x)     | If x 1 0
+= (And x y)   | If x y x
+= (Or x y)    | If x x y
+= (Xor x y)   | If x (Not y) y
+= (Nand x y)  | If x (Not y) 1
+= (Nor x y)   | If x 0 (Not y)
+= (Xnor x y)  | If x y (Not y)
+= (**else x)  | x
+
+= (Nat x)       | NatCase 0 Inc x
+= (Dec x)       | NatCase 0 i&i x
+= (Times f z x) | NatCase z (Times f f-z) x
+= (Add x y)     | Times Inc (Nat x) y
+= (Mul x y)     | Times (Add x) 0 y
+= (Sub x y)     | Times Dec (Nat x) y
+= (Pow b p)     | Times (Mul b) 1 p
+= (Bex p)       | Pow 2 p
+
+(LT = 0)(EQ = 1)(GT = 2)
+
+= (OrdWeld x y) | If (Eq1 x) y x
+= (natLte x y)  | Not (Sub x y)
+= (natLth x y)  | natLte Inc-x y
+= (natGte x y)  | natLte y x
+= (natGth x y)  | natLth y x
+= (natEql x y)  | And natLte-y-x natLte-x-y
+= (natMin x y)  | If natLte-x-y x y
+= (natMax x y)  | If natGte-x-y x y
+= (natCmp x y)  | natMin 2 (Sub Inc-x y)
+
+= (Div x y)        | If (natLth x y) 0 Inc-(Div (Sub x y) y)
+= (Mod x y)        | Sub x (Mul y | Div x y)
+= (DivCeil n m)    | Div (Add n | Dec m) m
+= (DivMod x y)     | 0 (Div x y) (Mod x y)
+= (Lsh v n)        | Mul (Bex n) v
+= (Rsh v n)        | Div v (Bex n)
+= (Trunc w n)      | Mod n Bex-w
+= (BitSlice o w n) | Trunc w (Rsh n o)
+= (BitIx i n)      | BitSlice i 1 n
+= (BitSz n)        | And n | Inc BitSz-(Div n 2)
+= (PopCount n)     | And n | Add (Mod n 2) PopCount-(Div n 2)
+= (BitSet i n)     | If  (BitIx i n) n (Add Bex-i n)
+= (BitClear i n)   | Ifz (BitIx i n) n (Sub n Bex-i)
+
+= (Sz v)      | And IsApp-v Inc-(Sz Car-v)
+= (bruh r i)  | Cdr (Times Car r i)
+= (Br i r f)  | NatCase f (bruh r) (Sub Sz-r i)
+= (Ix i r)    | Br i r 0
+= (opp v r i) | Ifz i (Car r v) (opp v Car-r Dec-i Cdr-r)
+= (Up i v r)  | NatCase r (opp v r) (Sub Sz-r i)
+= (Hd x)      | Ifz IsApp-x x Hd-(Car x)
+= (Last xs)   | And IsApp-xs Cdr-xs
+= (Null x)    | Not IsApp-x
+
+(OrdTag x)=(PlanCase _&1 (_ _ _)&2 (_ _)&3 0 x)
+
+= (Cmp x y)
+@ ox OrdTag-x
+| OrdWeld (natCmp ox OrdTag-y)
+@ natCase | natCmp x y
+@ pinCase | Cmp PinItem-x PinItem-y
+@ appCase | OrdWeld (Cmp Car-x Car-y) (Cmp Cdr-x Cdr-y)
+@ lawCase | OrdWeld (natCmp LawName-x LawName-y)
+          | OrdWeld (natCmp LawArgs-x LawArgs-y)
+                    (Cmp LawBody-x LawBody-y)
+| Ix ox (0 natCase pinCase lawCase appCase)
+
+= (Lth x y) | Eqz (Cmp x y)
+= (Eql x y) | Eq1 (Cmp x y)
+= (Gth x y) | Eq2 (Cmp x y)
+= (Neq x y) | Not (Eql x y)
+= (Lte x y) | Not (Gth x y)
+= (Gte x y) | Not (Lth x y)
+= (Min x y) | If (Lth x y) x y
+= (Max x y) | If (Gth x y) x y
+
+= (Find f x)
+^ _ 0 Sz-x
+? (go i rem)
+| Ifz rem i
+| If f-(Ix i x) i
+| go Inc-i Dec-rem
+
+= (FindEq e x)        | Find Eql-e x
+= (Any f x)           | Neq Sz-x (Find f x)
+= (Has e x)           | Neq Sz-x (FindEq e x)
+= (Switch ks k bs fb) | Br (FindEq k ks) bs fb
+
+= (Search key row stride low end)
+@ mid | Div (Add low end) 2
+@ ix  | Mul stride mid
+| If (Gte low end) (Mul ix 2)
+| Ix | Cmp key (Ix ix row)
+| 0
+  (Search key row stride low mid)
+  (Inc | Mul ix 2)
+  (Search key row stride Inc-mid end)
+
+= (searchSet key row) | Search key row 1 0 Sz-row
+= (searchTab key row) | Search key row 2 0 (Div Sz-row 2)
+
+= (foldr f z row)
+^ _ 0 Sz-row
+? (go i rem)
+| Ifz rem z
+| f (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (foldri f z row)
+^ _ 0 Sz-row
+? (go i rem)
+| Ifz rem z
+| f i (Ix i row)
+| go (Inc i) (Dec rem)
+
+= (foldl f z row)
+^ _ z 0 Sz-row
+? (go acc i rem)
+| Seq i
+| Seq acc
+| Ifz rem acc
+| go (f acc | Ix i row) (Inc i) (Dec rem)
+
+= (Gen n f)
+^ _ Nat-n
+? (go i)
+| And i (go Dec-i | f Dec-i)
+
+= (Weld x y)
+@ xw | Sz x
+@ yw | Sz y
+| Gen (Add xw yw)
+& i
+| If (Lth i xw) (Ix i x)
+| Ix (Sub i xw) y
+
+= (Insert ix val row)
+| Gen (Inc Sz-row)
+& i
+| Ix (Cmp i ix)
+| 0 (Ix i row) val (Ix Dec-i row)
+
+= (Splice at new old)
+| Gen (Add Sz-new Sz-old)
+& i
+@ j     | Sub i at
+@ newSz | Sz new
+| If (Lth i at)    (Ix i old)
+| If (Lth j newSz) (Ix j new)
+| Ix (Sub i newSz) old
+
+= (Map f v)       | Gen Sz-v x&(f | Ix x v)
+= (Rev row)       | (wid @ Sz row)(Gen wid i&(Ix (Sub wid Inc-i) row))
+= fst             | Ix 0
+= snd             | Ix 1
+= thr             | Ix 2
+
+
+= (Cons x xs)     | Weld (0 x) xs
+= (Snoc xs x)     | Weld xs (0 x)
+= (**put r i v)   | Up i v r
+= (**get r i)     | Ix i r
+= (**foreach x f) | Map f x
+= (Rep i n)       | Gen n _&i
+= (rowAnd v)      | foldr And TRUE v
+
+
+= (sum v)         | foldl Add 0 v
+= (all f v)       | rowAnd (Map f v)
+= (Cat vs)        | foldl Weld 0 vs
+= (CatMap f r)    | Cat (Map f r)
+= (ZipWith f a b) | Gen (Min Sz-a Sz-b) i&(f Ix-i-a Ix-i-b)
+= (Zip a b)       | ZipWith 0 a b
+= (Slash v s e)   | Gen (Sub e s) i&(get v | Add s i)
+= (Slice v s e)   | Slash v s (Min e | Sz v)
+= (Drop n v)      | Slice v n (Sz v)
+= (Take n v)      | Slice v 0 n
+
+(FillR f l)=(Ifz l f | FillR f snd-l fst-l)
+
+= (Fill f l)
+^ _ l f
+? (go l acc)
+| Ifz l acc
+| go snd-l (acc fst-l)
+
+(OpArity i)=(Br i (0 1 3 1 6) 1)
+
+= (Arity x)
+@ p | i&(If IsNat-i OpArity-i Arity-i)
+@ l | (_ a _)&a
+@ a | (f _)&(Dec (Arity f))
+@ n 0
+| PlanCase p l a n x
+
+(Arity Arity =?= 1)
+(Arity ##3 =?= 6)
+
+(c tag)=(tag ##rex)
+
+(WORD = c-{WORD})(TEXT = c-{TEXT})(LINE = c-{LINE})(OPEN = c-{OPEN})
+(NEST = c-{NEST})(INFX = c-{INFX})(PREF = c-{PREF})(SHUT = c-{SHUT})
+(EMBD = c-{EMBD})
+
+= (rexRune x)      | If (Neq 4 | Sz x) 0 | Ix 1 x
+= (rexSetRune r x) | If (Neq 4 | Sz x) x | Up 1 r x
+= (rexHeir x)      @ i (Dec Sz-x) | Ifz Dec-i 0 | Ix i x
+= (rexSetHeir h x) @ i (Dec Sz-x) | Ifz Dec-i x | Up i h x
+
+= (rexText x)      | If (Neq 3 | Sz x) 0 | Ix 1 x
+= (rexSetText t x) | If (Neq 3 | Sz x) x | Up 1 t x
+
+= (rexSons x)      | If (Neq 4 | Sz x) 0 | Ix 2 x
+= (rexSetSons s x) | If (Neq 4 | Sz x) x | Up 2 s x
+
+= (rexEmbd x)      | If (Neq 2 | Sz x) 0 | Ix 1 x
+
+= (rexIsEmbd rex)  | Eql 2 Sz-rex
+= (rexIsLeaf rex)  | Eql 3 Sz-rex
+= (rexIsNode rex)  | Eql 4 Sz-rex
+= (rexType rex)    | Ix (Sub Sz-rex 2) (0 {EMBD} {LEAF} {NODE})
+= rexStyle         | Hd
+
+= (**rexOpen rex cb)
+@ type  | rexType rex
+@ style | rexStyle rex
+@ rune  | rexRune rex
+@ text  | rexText rex
+@ embd  | rexEmbd rex
+@ sons  | rexSons rex
+@ nSon  | Sz sons
+@ heir  | rexHeir rex
+@ kids  | Ifz heir sons (Snoc sons heir)
+@ nKid  | Sz kids
+| **cb type style rune text embd sons nSon heir kids nKid
+
+= (rexKids rex)
+@ sons (rexSons rex)
+@ heir (rexHeir rex)
+| Ifz heir sons (Snoc sons heir)
+
+= (varE v)  | WORD v 0
+= (txtE t)  | TEXT t 0
+= (ctxE nm) | Ifz nm (**txtE nm) (**varE nm)
+
+= (sireErrFmt renderLineNum ss rex msg)
+@ ctx (Ix 1 ss)
+@ ln  (Ix 4 ss)
+@ blk (Ix 5 ss)
+| OPEN "#" | 0 varE-{block} | blk
+| OPEN "#" | 0 varE-{what}  | rex
+| OPEN "#" | 0 varE-{where} | SHUT {:} (0 ctxE-ctx renderLineNum-ln) 0
+| OPEN "#" | 0 varE-{why}   | txtE-msg
+| 0
+
+= (appE exps)          | If (Eq1 Sz-exps) (fst exps) | NEST {#|} exps 0
+
+= (rowE xs)            | If Null-xs       (EMBD 0)   | appE (Cons EMBD-0 xs)
+
+= (sireErr ss rex msg) | ##SireError (sireErrFmt EMBD ss rex msg)
+
+= ({'} ss rex)
+@ args (rexKids rex)
+| If (Neq 1 Sz-args) | sireErr ss rex {Expected 1 Parameter}
+| 0 ss EMBD-(fst args)
+
+({,} st rex)=(0 st rowE-(rexKids rex))
+
+= ({++} ss rex)
+^ (ss, rowE (_ 0 rex))
+? (go acc rex)
+@ sons               | rexSons rex
+@ rune               | rexRune rex
+@ itemRex            | If (Eql 1 Sz-sons) (fst sons) (OPEN {|} sons 0)
+| Ifz rex            | acc
+| If (Neq {++} rune) | acc rex
+| If (Null sons)     | sireErr ss rex {usage: (++ x), (++ f x y), etc}
+| else               | go (acc itemRex) rexHeir-rex
+
+= (binop val ss rex)
+@ kids (rexKids rex)
+| If (Neq 2 | Sz kids) | sireErr ss rex {this is a binary operator}
+| (ss, appE (EMBD val, fst kids, snd kids))
+
+({&&} = binop And)({||} = binop Or)({::} = binop 0)
+({==} = binop Eql)({/=} = binop Neq)
+
+= ({:} ss rex)
+@ sons | rexSons rex
+@ args | Take Dec-(Sz sons) sons
+@ apps | Last sons
+@ body | rexHeir rex
+| If    | Or Eqz-body | Or (Lth Sz-sons 2) | (Neq "<" rexRune-apps)
+    | sireErr ss rex {Invalid use of :}
+^ (ss, _)
+| OPEN "|" (rexKids apps)
+| OPEN "&" ,(NEST "|" args 0)
+| body
+
+= (**openPair x k)   | **k (Ix 0 x) (Ix 1 x)
+= (**openTriple x k) | **k (Ix 0 x) (Ix 1 x) (Ix 2 x)
+
+= (mapState f row st)
+^ foldl _ [st 0] row
+& (st_acc x)
+: st acc < openPair st_acc
+: st x   < openPair (f x st)
+| (st, acc x)
+
+(NONE = 0)(SOME = 0)(NIL = 0)(CONS = 0)(LEFT = 0)(RIGHT = 1)
+
+= (**maybeCase mb non som) | Ifz mb non (**som Cdr-mb)
+
+
+= (**listCase xs nil cons) | Ifz xs nil (**cons Ix-0-xs Ix-1-xs)
+
+
+= (**eitherCase x l r)     | If Hd-x (**r fst-x) (**l fst-x)
+
+= (listFoldl f z l)
+: x xs < listCase l z
+@ fzx (f z x)
+| Seq fzx
+| listFoldl f fzx xs
+
+= (listZipWith f al bl)
+: a as < listCase al NIL
+: b bs < listCase bl NIL
+| CONS (f a b) (listZipWith f as bs)
+
+= (fmapMaybe x f)     | And x | SOME | f | fst x
+= (listFoldr f z l)   | listCase l z (x xs)&(f x | listFoldr f z xs)
+= (listSing x)        | CONS x 0
+= (listMap f l)       | listFoldr (x xs)&(CONS f-x xs) NIL l
+= (**listForEach l f) | listMap f l
+= (listIdx i l)       | Ifz i fst-l (listIdx Dec-i snd-l)
+= (listUnsafeLast l)  | (xs @ snd l)(Ifz xs fst-l | listUnsafeLast xs)
+= (listLen l)         | listFoldr (x acc & Inc acc) 0 l
+= (listFromRow v)     | foldr 0 NIL v
+= (listOr v)          | listFoldr Or 0 v
+= (listAny f v)       | listOr listMap-f-v
+= (listHas e xs)      | listAny Eql-e xs
+= (listEnumFrom n)    | CONS n (listEnumFrom Inc-n)
+= (listWeld a b)      | listCase a b (x xs)&(CONS x | listWeld xs b)
+= (listCat ls)        | listFoldr listWeld NIL ls
+= (listCatMap f r)    | listCat (listMap f r)
+= (listZip a b)       | listZipWith 0 a b
+= (listFilter f lis)  | listFoldr (x xs)&(Ifz f-x xs | CONS x xs) 0 lis
+= (listGenFrom i n f) | And (Lth i n) | CONS f-i | listGenFrom-(Inc i) n f
+= (listGen n f)       | listGenFrom 0 n f
+= (listRep i n)       | listGen n _&i
+= (listIndexed l)     | listZip (listEnumFrom 0) l
+= (listRev xs)        | listFoldl (x y & CONS y x) NIL xs
+= (listSnoc xs e)     | listCase xs (CONS e NIL) (x xs)&(CONS x | listSnoc xs e)
+
+
+= (listFindIndex pred xs notFound found)
+^ listFoldr _ notFound (listIndexed xs)
+& (idxVal rest)
+| Ifz (pred | snd idxVal) rest
+| found (fst idxVal)
+
+= (dictSearchCase key table notFound found)
+@ res | searchTab key table
+@ ix  | Div res 2
+| Ifz (Mod res 2) notFound
+| Seq ix
+| found ix (Ix Inc-ix table)
+
+= bstEmpty        | 0
+= (**bstSing k v) | [k v 0 0]
+
+= (**bstCase x empty node)
+| Ifz x empty
+| **node (Ix 0 x) (Ix 1 x) (Ix 2 x) (Ix 3 x)
+
+= (bstWalk x)
+: _ _ l r < bstCase x NIL
+| listWeld bstWalk-l x::(bstWalk r)
+
+= (bstSearch k x)
+: xk xv l r < bstCase x NONE
+@ LT | bstSearch k l
+@ EQ | SOME xv
+@ GT | bstSearch k r
+| Br (Cmp k xk) [LT EQ] GT
+
+(**bstSearchCase k t nf f)=(maybeCase (bstSearch k t) nf f)
+
+= (merge x y)
+: xk xv xl xr < bstCase x y
+: yk yv yl yr < bstCase y x
+| [yk yv (merge x yl) yr]
+
+= (bstAlter k f x)
+: xk xv l r < bstCase x (maybeCase (f NONE) 0 (bstSing k))
+@ LT | [xk xv (bstAlter k f l) r]
+@ EQ | maybeCase (f SOME-xv) (merge l r) nv&[k nv l r]
+@ GT | [xk xv l (bstAlter k f r)]
+| Br (Cmp k xk) [LT EQ] GT
+
+= (bstLoad table)
+^ _ 0 (Div (Sz table) 2)
+? (go off end)
+@ wid      | Sub end off
+@ zeroCase | bstEmpty
+@ oneCase  @ i (Mul 2 off) | bstSing (Ix i table) (Ix Inc-i table)
+| Br wid [zeroCase oneCase]
+@ mid   | Add off (Div wid 2)
+@ i     | Mul 2 mid
+@ k     | Ix i table
+@ v     | Ix Inc-i table
+@ l     | go off mid
+@ r     | go Inc-mid end
+| [k v l r]
+
+(bstSave x)=(Fill 0 | listCatMap kv&(fst kv :: (snd kv :: NIL)) bstWalk-x)
+
+= (bstIns k v t)        | bstAlter k (_ & SOME v) t
+= (bstPut t k v)        | bstAlter k (_ & SOME v) t
+= (bstHas k t)          | IsApp (bstSearch k t)
+= (bstIdx k t)          | bstSearchCase k t 0 a&a
+= bstIsEmpty            | Eqz
+= (bstFromPairsList xs) | listFoldl (t kv & bstIns fst-kv snd-kv t) 0 xs
+= (bstUnion x y)        | listFoldl (t kv & bstIns fst-kv snd-kv t) y bstWalk-x
+
+= (PadLen n)      | Dec (BitSz n)
+= (unpackSlice s) | If IsNat-s (0, PadLen s, s) s
+
+= (BitFill ss)
+^ fst (foldl _ [0 0] ss)
+& (data_sz slice)
+: data sz    < openPair data_sz
+: so ss sd   < openTriple (unpackSlice slice)
+@ newSz      | Add sz ss
+@ newData    | Add data (Lsh (BitSlice so ss sd) sz)
+| Seq newSz
+| Seq newData
+| [newData newSz]
+
+= (ByteFill ss)
+^ BitFill (Map _ ss)
+& bs
+: off sz data < openTriple bs
+| If IsNat-bs bs (Mul 8 off, Mul 8 sz, data)
+
+= (BitFillList ss)  | BitFill (Fill 0 ss)
+= (ByteFillList ss) | ByteFill (Fill 0 ss)
+
+= newlineChar    | 10
+= (isDigit c)    | And (Gte c {0}) (Lte c {9})
+= (isUpper c)    | And (Gte c {A}) (Lte c {Z})
+= (isLower c)    | And (Gte c {a}) (Lte c {z})
+= (isAlpha c)    | Or isUpper-c isLower-c
+
+= (StrFoldl f z s)
+| Ifz s z
+| Seq z
+@ z (f z (Mod s 256))
+| StrFoldl f z (Div s 256)
+
+= (StrFoldr f z s)
+| Ifz s z
+| f (Mod s 256)
+| StrFoldr f z (Div s 256)
+
+= (ByteSz s)       | DivCeil BitSz-s 8
+= (StrPad s)       | BitSet (Mul 8 ByteSz-s) s
+= (strCat vs)      | ByteFill (Map StrPad vs)
+= (strWeld x y)    | strCat [x y]
+= (StrAny f s)     | StrFoldr (c k & Or (f c) k) 0 s
+= (StrAll f s)     | StrFoldr (c k & And (f c) k) 1 s
+= (StrHas c s)     | StrAny (Eql c) s
+
+= (ByteIx i n)
+| Ifz i (Mod n 256)
+| And n
+| ByteIx (Dec i) (Div n 256)
+
+= (strFindIndexOff f off str)
+@ wid (ByteSz str)
+^ _ off
+? (loop ix)
+| If (Gte ix wid) wid
+| If (f (ByteIx ix str)) ix
+| loop (Inc ix)
+
+= (strElemIndexOff byte off bar) | strFindIndexOff (Eql byte) off bar
+= (ByteSlice off wid n)          | BitSlice (Mul 8 off) (Mul 8 wid) n
+= (ByteTake wid n)               | Trunc (Mul 8 wid) n
+= (ByteDrop wid n)               | Rsh n (Mul 8 wid)
+
+= (listDigits num)
+| Ifz num {0}::NIL
+^ _ num NIL
+? (loop mor acc)
+| Ifz mor acc
+: mor digit < openPair (DivMod mor 10)
+| loop mor (Add digit {0})::acc
+
+= (digits num)       | Fill 0 listDigits-num
+= (showNat n)        | strCat digits-n
+
+
+= (natE n)           | WORD (showNat n) 0
+
+
+= (renderLnNum ln)   | **varE (showNat ln)
+
+
+= (sireErr ss r msg) | ##SireError (sireErrFmt renderLnNum ss r msg)
+
+
+
+= (**gensym st k)
+@ nex | Ix 0 st
+@ aft | Inc nex
+@ st  | Up 0 aft st
+@ nm  | varE (strWeld {_g} showNat-nex)
+| Strict 3 aft st nm
+| **k st nm
+
+
+(bloodline lis)=(listFoldr (i r & rexSetHeir r i) 0 lis)
+
+= ({#} ss rex)
+: _ _ _ text _ _ _ _ kids nKid < rexOpen rex
+@ k1          | fst kids
+@ text        | rexText k1
+| Ifz nKid    | sireErr ss rex } Needs kids>=1
+| Ifz text    | sireErr ss k1  } needs to be text
+@ name        | strWeld {#} text
+@ bindPin     | bstIdx name (Ix 2 ss)
+@ macro       | snd (PinItem bindPin)
+| Ifz bindPin | sireErr ss rex (strWeld {undefined symbol: #} text)
+| macro ss rex
+
+= (isSymbolChar c)
+| Or Eql-{_}-c
+| Or isAlpha-c isDigit-c
+
+= (strIsSymbol str)
+| And str
+| And (| Not | isDigit | ByteIx 0 str)
+| StrAll isSymbolChar str
+
+= (readSymbol rex err ok)
+@ rune (rexRune rex)
+@ kids (rexKids rex)
+@ nKid (Sz kids)
+| If (Eql {.} rune)
+    | If (Neq 1 nKid)
+        | err rex {Should be .x, .5, .{x}, etc}
+    @ kid (Ix 0 kids)
+    | Ifz (rexIsLeaf kid)
+        | err rex {Should be .x, .5, .{x}, etc}
+    | If (Eql {WORD} | rexStyle kid)
+        | err rex {TODO: readSymbol should support .foo and .234}
+    | ok (rexText kid)
+: _ style _ text _ sons nSon heir _ _ < rexOpen rex
+| If (Neq {WORD} style) | err rex {expected a bare word}
+| If heir               | err rex {unexpected heir}
+| Ifz strIsSymbol-text  | err rex {bad symobl character}
+| ok text
+
+(readSymbolEx ss rex)=(readSymbol rex (sireErr ss) (x & x))
+
+a=9
+
+= (expandPat ss pat val body)
+: _ style rune _ _ sons nSon heir _ _ < rexOpen pat
+: ss tmp < gensym ss
+@ fail   | (sireErr ss pat {invalid pattern})
+| If heir fail
+^ Switch [{!} {,} {@}] rune _ fail
+++  | If (Neq 1 nSon) fail
+    ^ (ss, _)
+    | OPEN {#@} (tmp, val)
+    | OPEN {#|} (EMBD Seq, tmp)
+    | OPEN {@}  (fst sons, tmp)
+    | body
+++  ^ (ss, OPEN {#@} (tmp, val) (foldri _ body sons))
+    & (i son heir)
+    | OPEN "@" (son, appE (EMBD Ix-i, tmp)) heir
+++  | If (Neq 2 nSon) fail
+    : alias pat < openPair sons
+    | Seq (readSymbolEx ss alias)
+    ^ (ss, _)
+    | OPEN {#@} (alias, val)
+    | OPEN {@}  (pat, alias)
+    | body
+
+= ({@} ss rex)
+: _ style rune _ _ _ _ heir kids nKid    < rexOpen rex
+: pat val body                           < openTriple kids
+: _ patStyle patRune _ _ _ _ patHeir _ _ < rexOpen pat
+| If (nKid /= 3)                         | sireErr ss rex {expected three kids}
+| If (Eql {WORD} patStyle)
+    | If patHeir | expandPat ss patHeir val body
+    | (ss, rexSetRune {#@} rex)
+| expandPat ss pat val body
+
+= (isPattern rex)
+@ isStructBind | And (Eql {WORD} rexStyle-rex) Not-(Eqz rexHeir-rex)
+| (isStructBind || Has rexRune-rex [{!} {,} {@}])
+
+= (rebindPatternArgs ss args)
+^ mapState _ args (ss, NIL)
+& (son acc)
+@ (ss, rebinds) acc
+| Ifz isPattern-son (acc, son)
+: ss newArgRex < gensym ss
+| ((ss, CONS [son newArgRex] rebinds), newArgRex)
+
+= (wutMacro wutRune ss rex)
+@ kids@[sigRex bodyRex] | rexKids rex
+@ sigRune               | rexRune sigRex
+@ sigSons               | rexSons sigRex
+| If (Neq 2 Sz-kids)    | sireErr ss rex "bad lambda"
+| If (Neq {|} sigRune)  | sireErr ss rex "bad lambda"
+| If rexHeir-sigRex     | sireErr ss sigRex "unexpected heir"
+| If (Lth sigSons 2)    | sireErr ss rex "bad lambda"
+@ fallback              | (ss, rexSetRune wutRune rex)
+@ ([ss rebinds], args)  | rebindPatternArgs ss (Drop 1 sigSons)
+| If (Null rebinds)     | fallback
+^ (ss, _)
+| OPEN wutRune [(NEST {|} (Cons fst-sigSons args) 0)]
+^ listFoldr _ bodyRex rebinds
+& (rebind heir)
+| OPEN "@" rebind heir
+
+({?} = wutMacro {#?})({??} = wutMacro {#??})
+
+= ({&} ss rex)
+@ kids@[sigRex bodyRex] | rexKids rex
+@ sigRune               | rexRune sigRex
+| If (Neq 2 Sz-kids)    | sireErr ss rex "bad lambda"
+| If rexHeir-sigRex     | sireErr ss sigRex "unexpected heir"
+@ fallback              | (ss, rexSetRune "#&" rex)
+| If (Eql {|} sigRune)
+    @ [[ss rebinds] args] (rebindPatternArgs ss rexSons-sigRex)
+    | If (Null rebinds) fallback
+    ^ (ss, _)
+    | OPEN "#&" [(NEST {|} args 0)]
+    ^ listFoldr _ bodyRex rebinds
+    & (rebind heir)
+    | OPEN "@" rebind heir
+| If (isPattern sigRex)
+    : ss newArgRex < gensym ss
+    | 0 ss | OPEN "#&" [newArgRex]
+           | OPEN "@" [sigRex newArgRex]
+           | bodyRex
+| fallback
+
+= (unrollTis rex)
+@ heir (rexHeir rex)
+| Ifz heir                    | listSing rex
+| If (Neq (rexRune heir) {=}) | listSing rex
+| CONS (rexSetHeir 0 rex)
+| unrollTis heir
+
+= (parseDefine ss rex)
+: _ _ _ _ _ _ _ heir kids@[sig val] nKid < rexOpen rex
+: _ _ sigRune _ _ _ _ _ sigKids sigNKid  < rexOpen sig
+^ And (Eql "|" sigRune) | And (Gte sigNKid 2) | And (Eql nKid 2) | _
+@ nmRex | fst sigKids
+@ nm    | If (Eql {**} rexRune-nmRex) (fst | rexSons nmRex) nmRex
+| (nm, sig, val)
+
+= ({=} ss rex)
+^ 0 ss | bloodline | listMap _ | unrollTis rex
+& rex
+@ res@(nm, sig, body) (parseDefine ss rex)
+| Ifz res (OPEN "#=" (rexKids rex) 0)
+| OPEN {#=} (nm, OPEN {??} [sig body] 0) 0
+
+= (isSireDecimal str) | And str | StrAll isDigit str
+= (loadSireDecimal s) | StrFoldl (acc c & Add (Mul 10 acc) (Sub c {0})) 0 s
+
+= (readSimpleKey ss rex)
+| If (Or rexHeir-rex Not-(rexIsLeaf rex))
+    | sireErr "not a key"
+@ txt (rexText rex)
+| If (Eql {WORD} rexStyle-rex && isSireDecimal txt)
+    | loadSireDecimal txt
+| txt
+
+= (readItems ss rex)
+| Ifz rex NIL
+| If ("-" /= rexRune rex) | sireErr ss rex {Expected a - rune}
+| CONS (rexSetHeir 0 rex)
+| readItems ss (rexHeir rex)
+
+= (readBranches ss rex)
+: item                 < listForEach (readItems ss rex)
+@ sons@[keyRex expRex] | rexSons item
+| If (Sz sons /= 2)    | sireErr ss rex {expected a key and a value}
+| (readSimpleKey ss keyRex, expRex)
+
+= ({#simpleswitch} ss rex)
+: _ _ _ _ _ _ _ _ kids nKid < rexOpen rex
+@ [_x expr wild armsRex] | kids
+| If (Neq 4 nKid)        | sireErr ss {expected four kids}
+@ arms | Fill 0 (readBranches ss armsRex)
+@ keys | Map fst arms
+@ vals | Map snd arms
+^ (ss, _)
+| appE (EMBD Switch, EMBD keys, expr, rowE vals, wild)
+
+= ({#struct} ss rex)
+@ kids   | rexKids rex
+@ sign   | Ix 2 kids
+@ sKid   | rexKids sign
+@ cnstr  | fst sKid
+@ fields | Drop 1 sKid
+| Ifz  && (Sz kids == 3)
+       && (rexRune sign == {|})
+        | (Sz sKid)
+    | sireErr ss rex {usage: struct#(CONSTRUCTOR field...)}
+@ fields
+    : field     < foreach fields
+    @ fieldKids | rexKids field
+    @ nm        | fst fieldKids
+    | If   && (rexStyle field == {WORD})
+            | (Eqz rexHeir-field)
+        field
+    | If   && (rexRune field == {/})
+           && (Sz fieldKids == 2)
+           && (rexStyle nm == {WORD})
+            | (Eqz rexHeir-nm)
+        nm
+    | Die ["bad input" [rex field]]
+@ gettersAndSetters
+    ^ bloodline (listCat _)
+    : [i getterSym] < listForEach (listIndexed | listFromRow fields)
+    @ struct    | WORD {_x} 0
+    @ newVal    | WORD {_y} 0
+    @ setterSym | WORD (strWeld (rexText getterSym) "Set") 0
+    | CONS | OPEN "#=" (getterSym, EMBD (Ix i)) 0
+    | CONS | OPEN "#=" (setterSym, EMBD (Up i)) 0
+    | NIL
+^ (ss, _)
+@ sig | NEST "|" (Cons (PREF "**" [cnstr] 0) fields) 0
+@ bod | rowE fields
+| OPEN "#=" [sig bod]
+| gettersAndSetters
+
+= ({#simpledata} ss rex)
+@ bad | sireErr ss rex {bad #simpledata}
+| If (| Neq 2 | Sz | rexSons rex) bad
+@ fields
+    ^ _ (rexHeir rex)
+    ? (loop rex)
+    @ sons | rexSons rex
+    | Ifz rex NIL
+    | If Null-sons bad
+    | If ("-" /= rexRune rex) bad
+    @ !cnstr | readSymbolEx ss fst-sons
+    | cnstr::(loop rexHeir-rex)
+^ (ss, bloodline _)
+: cnstrNm < listForEach fields
+| OPEN "#=" (varE cnstrNm, EMBD cnstrNm) 0
+
+= (readSimpleCaseBranches ss rex)
+@ sons      | rexSons rex
+@ nSon      | Sz sons
+@ lastSon   | Dec nSon
+@ valid     | (("-" == rexRune rex) || Gte nSon 2)
+| Ifz rex   | NIL
+| Ifz valid | sireErr ss rex {expected something like: - FOO a b c | bodyExpr}
+@ syms      | Map (readSymbolEx ss) (Take lastSon sons)
+| CONS (fst syms, Drop 1 syms, Ix lastSon sons)
+| readSimpleCaseBranches ss (rexHeir rex)
+
+(rowMax xs)=(foldl Max 0 xs)
+(maxOf f xs)=(rowMax | Map f xs)
+
+= ({#simplecase} ss rex)
+
+    @ kids@[_ expr fallback branchListRex] (rexKids rex)
+
+    | If (Sz kids /= 4) | sireErr ss rex {expected four params}
+
+    @ branches | Fill 0 (readSimpleCaseBranches ss branchListRex)
+    @ keys     | Map fst branches
+    : ss tmpE  < gensym ss
+    @ tagE     | appE (EMBD Hd, tmpE)
+    @ fieldVar | i&(varE | strWeld "_f" showNat-i)
+
+    @ fieldBinds
+        @ maxNumFields | maxOf [_ fields _]&(Sz fields) branches
+        : i < listGen maxNumFields
+        | OPEN "#@" (fieldVar i, appE (EMBD Ix-i, tmpE)) 0
+
+    @ bodyExp
+        ^ OPEN "#|" (EMBD Switch, EMBD keys, tagE, _, fallback) 0
+        ^ rowE (Map _ branches)
+        & [_cnstr fields body]
+        | bloodline
+        | listSnoc
+            : [i field] < listForEach (listIndexed (listFromRow fields))
+            | OPEN "#@" (varE field, fieldVar i) 0
+        | OPEN "#|" [body] 0
+
+    ^ (ss, _)
+    | OPEN "#@" (tmpE, expr)
+    | bloodline (listSnoc fieldBinds bodyExp)
+
+* # struct (Span a) | SPAN spanLin/a spanOff/Nat spanEnd/Nat spanVal/a
+* # struct Line     | LN lineFil/Str lineNum/Nat lineTxt/Str
+
+# simpledata (Lexi a)
+- LRUNE
+- LWORD
+- LWYTE
+- LSEMI
+- LTEXT
+- LFAIL
+- LTERM
+- LLINE multi/(List (Span ()))
+- LNEST isBracket/Bit xs:a
+
+= (**getLexiLine x fb ok)
+| If (Hd x /= {LLINE}) fb
+| **ok (fst x)
+
+= (lexMany lexOne ln off ctx txt)
+@ lexeme@[_ off end tok] (lexOne ln off ctx txt)
+^ (lexeme :: _)
+| If (tok == LTERM) NIL
+| lexMany lexOne ln end ctx txt
+
+= (lexNest lexMany lexOne ln typ ctx off txt)
+@ ts  | lexMany lexOne ln (Inc off) ctx txt
+@ [_ _ end _] | listUnsafeLast ts
+| (ln, off, end, **LNEST typ ts)
+
+= (wordy c)
+^ (Gte c {0} && (Lte c {z} && _))
+| (Gte c {a} || (Lte c {9} || (Eql {_} c || (Gte c {A} && Lte c {Z}))))
+
+runeChars={!#$%&*+,-./:<=>?@\^`|~'}
+
+(runic c)=(StrHas c runeChars)
+
+a=9
+
+= (eatCurly txt o d)
+| Ifz d o
+@ next (eatCurly txt Inc-o)
+# simpleswitch (ByteIx o txt) (next d)
+- 0   | o
+- "{" | next Inc-d
+- "}" | next Dec-d
+
+= (eatCord txt o)
+^ Min (ByteSz txt) (Inc _)
+| strElemIndexOff {"} Inc-o txt
+
+= (lexUgly ln off txt)
+@ start   | Inc-off
+@ delim   | ByteIx start txt
+@ lineStr | [ln off ByteSz-txt LLINE-NIL]
+@ noMatch
+    ^ [ln off _ LTEXT]
+    ^ Min (ByteSz txt) (Inc _)
+    | strElemIndexOff delim (Inc start) txt
+# simpleswitch delim noMatch
+- 0   | lineStr
+- { } | lineStr
+
+= (lexOne ln o ctx txt)
+@ eat | strFindIndexOff
+@ c   | ByteIx o txt
+^ # simpleswitch c _
+  - {(}       | lexNest lexMany lexOne ln FALSE {)} o txt
+  - {[}       | lexNest lexMany lexOne ln TRUE  {]} o txt
+  - "}"       | lexUgly ln o txt
+  - "{"       | (ln, o, eatCurly txt Inc-o 1,      LTEXT)
+  - 0         | (ln, o, ByteSz txt,                LTERM)
+  - {;}       | (ln, o, ByteSz txt,                LSEMI)
+  - {"}       | (ln, o, eatCord txt o,             LTEXT)
+  - { }       | (ln, o, eat (Neq 32)        o txt, LWYTE)
+| If wordy-c | (ln, o, eat c&(Not wordy-c) o txt, LWORD)
+| If runic-c | (ln, o, eat c&(Not runic-c) o txt, LRUNE)
+| If ctx==c  | (ln, o, Inc o,                     LTERM)
+| else       | (ln, o, Inc o,                     LFAIL)
+
+(lexLine ln)=(lexMany lexOne ln 0 0 (lineTxt ln))
+
+= (multiLine topLs)
+: a@SPAN[aLin aOff aEnd aTok] ls < listCase topLs NIL
+@ fb (a :: multiLine ls)
+: b@SPAN[____ bOff bEnd bTok] ls < listCase ls    fb
+: aExtra < **getLexiLine aTok fb
+| If (bTok /= LTERM) fb
+@ onMatch
+    & (newTok more)
+    @ aTok | LLINE (spanValSet 0 newTok :: aExtra)
+    | multiLine (SPAN aLin aOff aEnd aTok)::more
+: c@SPAN[_ cOff cEnd cTok] ls < listCase ls fb
+# simplecase cTok fb
+- LLINE _ | If (aOff/=cOff) fb
+          | onMatch c ls
+- LWYTE   : d@SPAN[_ dOff dEnd dTok] ls < listCase ls fb
+          : _ < **getLexiLine dTok fb
+          | If (aOff/=dOff) fb
+          | onMatch d ls
+
+= (mkClump xs)
+@ SPAN[lin off _   _] (fst xs)
+@ SPAN[_   _   end _] (Last xs)
+| (**SPAN lin off end xs)
+
+= (lexiIsSpace tok)  | Has tok [LWYTE LSEMI LTERM]
+= (elemIsSpace elem) | lexiIsSpace (spanVal elem)
+
+= (isEndOfCluster ls)
+: l ls < listCase ls FALSE
+| Or (elemIsSpace l)
+| And (spanVal l == LRUNE)
+: l ls < listCase ls TRUE
+| elemIsSpace l
+
+= (clumpLoop acc remain)
+: next more < listCase remain | If acc==NIL NIL
+                              | listSing mkClump-(FillR 0 acc)
+| If (acc==NIL && elemIsSpace next)
+    | clumpLoop acc more
+| If (acc/=NIL && isEndOfCluster remain)
+    | **CONS mkClump-(FillR 0 acc)
+    | clumpLoop NIL remain
+| clumpLoop next::acc more
+
+= (clump lexemes)
+^ Fill 0 | clumpLoop NIL | listMap _ lexemes
+& span@SPAN[l o e x]
+| **SPAN l o e
+| If (Hd x /= {LNEST}) x
+| **LNEST fst-x (clump snd-x)
+
+I=0
+
+# simpledata Tree
+- TLEAF Clump
+- TNODE Str (Row Tree) (Maybe Tree)
+
+# simpledata (Frag a)
+- WOLF Str a
+- LAMB a
+
+(**getWolf frag fb onWolf)=(# simplecase frag fb)(- WOLF x y | **onWolf x y)
+
+(spanTxt s@SPAN[lin off end _])=(ByteSlice off (Sub end off) lineTxt-lin)
+
+= (spanFrag s@SPAN[lin off end val])
+| If (val /= LRUNE) (LAMB s)
+| WOLF (spanTxt s) s
+
+= (clumpFrag c@SPAN[_ off _ es])
+@ lamb | (off, LAMB c)
+| If (Sz es /= 1) lamb
+: rune _ < getWolf (spanFrag fst-es) lamb
+(Dec (Add off ByteSz-rune), WOLF rune c)
+
+= (fTree frag)
+# simplecase frag 0
+- LAMB c   | TLEAF c
+- WOLF b _ | TNODE b [] NONE
+
+= (iTree item@I[t x k])
+| Ifz t ({invalid item} item)
+| TNODE t (FillR 0 x) k
+
+= (merge [rp r] [ip i@I[t cs mHeir]])
+: k < maybeCase mHeir | If (rp == ip) | ( ip, I t cs    SOME-r )
+                      | else          | ( ip, I t r::cs NONE   )
+| (ip, I t (k::cs) (SOME r))
+
+(pairMap f [x y])=[x (f y)]
+
+= (close pos stk)
+: i more < listCase stk NIL
+| If (Gte pos | fst i) stk
+: j k < listCase more | Die {indent too small.  Bug in block splitter}
+| close pos (merge (pairMap iTree i) j :: k)
+
+
+= (pushOnto stk (fragPos, frag))
+@ stk@[i is] (close fragPos stk)
+: r _ < getWolf frag (merge (fragPos, fTree frag) i :: is)
+| (fragPos, I r NIL NONE)::stk
+
+= (pushAll pf fs)          | listFoldl pushOnto (listSing pf) fs
+= (forceMerge a b)         | merge (pairMap iTree a) b
+= (nonemptyFoldl f [x xs]) | listFoldl f x xs
+
+= (layout frags)
+: f@[pos frag] fs < listCase frags NIL
+# simplecase frag 0
+- LAMB _   | (fTree frag :: layout fs)
+- WOLF r _ ^ listSing | iTree | snd | nonemptyFoldl forceMerge _
+           | pushAll (pos, I r NIL NONE) fs
+
+= (layout frags)
+: f@[pos frag] fs < listCase frags NIL
+: r _             < getWolf frag (fTree frag :: layout fs)
+^ listSing | iTree | snd | nonemptyFoldl forceMerge _
+| pushAll (pos, I r NIL NONE) fs
+
+# simpledata BlockBuffer
+- WOODS
+- TEXTY lines/(List | List Lexeme) depth/Nat
+- BLOCK lines/(List | List Lexeme) depth/Nat prevDepth/Nat
+
+# simpledata LineCat
+- CVOID
+- CNOTE offset/Nat
+- COPEN indent/Nat offset/Nat
+- CQUOT offset/Nat
+- CSING offset/Nat
+
+# struct BlockState | BS bsPath/Str bsLine/Nat bsBuf/BlockBuffer
+
+= (lineCat lexemes)
+: SPAN[_ lOff lEnd x] ls < listCase lexemes CVOID
+# simplecase x (CSING lOff)
+- LTERM   | CVOID
+- LSEMI   | CNOTE lOff
+- LLINE _ | CQUOT lOff
+- LWYTE   | lineCat ls
+- LRUNE   : SPAN[_ _ _ yTok] ys < listCase ls (CSING lOff)
+          | If lexiIsSpace-yTok (COPEN Dec-lEnd lOff)
+          | CSING lOff
+
+= (blockStep bs@BS[fn lno st] mInp)
+    @ eofCase  | (BS fn lno WOODS, (Neq WOODS st && listSing (listRev fst-st)))
+    : l        < maybeCase mInp eofCase
+    @ lc       | lineCat l
+    @ ok       | (buf out)&(BS fn (Inc lno) buf, out)
+    @ break    & ls @ (st2, out) (blockStep (BS fn lno WOODS) mInp)
+                    | (st2, (listRev ls :: out))
+
+    @ (bd, ad) # simplecase lc (###{bad LineCat} lc)
+               - CVOID     | [0 0]
+               - CNOTE o   | [o o]
+               - COPEN i o | [i o]
+               - CQUOT o   | [o o]
+               - CSING o   | [o o]
+
+    # simplecase st (###{bad block buffer} st)
+
+    - WOODS
+        # simplecase lc (###{bad LineCat} lc)
+        - CVOID     | ok WOODS NIL
+        - CNOTE _   | ok WOODS NIL
+        - COPEN _ _ | ok (BLOCK listSing-l bd Inc-ad) NIL
+        - CQUOT _   | ok (TEXTY listSing-l bd) NIL
+        - CSING _   | ok WOODS (listSing (listSing l))
+
+    - TEXTY ls deep
+        # simplecase lc (break ls)
+        - CQUOT d | If d/=deep break-ls
+                  | ok (**TEXTY l::ls deep) NIL
+
+    - BLOCK ls deep prev
+        | If (CVOID == lc)
+            | Ifz prev (break ls)
+            | ok (BLOCK ls deep 0) NIL
+         | If (Eqz prev && Eqz ad)
+             | break ls
+         | If (Lth bd deep) (break ls)
+         | ok (BLOCK (l::ls) deep (Inc ad)) NIL
+
+= (treeStep st@BS[fil num _] mInp)
+@ er@(st2, out)
+    | blockStep st
+    | fmapMaybe mInp (byt & lexLine (**LN fil num byt))
+@ treeOut
+    : blockLines < listForEach out
+    @ blockLexes (listCat blockLines)
+    @ [SPAN[LN[_ firstLineNumber _] _ _ _] _] blockLexes
+   ++ firstLineNumber
+   ++ ^ layout | listMap clumpFrag | listFromRow | clump _
+      | multiLine | listCat blockLines
+| (st2, treeOut)
+
+# simpledata (SubLayout a)
+- SEQUE (List a)
+- PREFX Str (List (Frag a))
+- INFIX (NonEmpty a) Str (SubLayout a)
+
+= (lambs fs)
+: f more < listCase fs (NONE, NIL)
+# simplecase f 0
+- LAMB x   | pairMap (CONS x) (lambs more)
+- WOLF r _ | (SOME [r more], NIL)
+
+= (subLayout frags)
+: f fs < listCase frags (SEQUE NIL)
+# simplecase f 0
+- WOLF r _ | PREFX r fs
+- LAMB x   @ [rest hed] (lambs fs)
+           : (ryn, more) < maybeCase rest (SEQUE x::hed)
+           | INFIX [x hed] ryn (subLayout more)
+
+= (spanQuotedStr span)
+@ txt (spanTxt span)
+| If (ByteIx 0 txt == "}") | ByteSlice 2 (Sub (ByteSz txt) 3) txt
+| else                     | ByteSlice 1 (Sub (ByteSz txt) 2) txt
+
+= (lineRex acc spans)
+: span spans < listCase spans acc
+@ txt | ByteDrop 2 | spanTxt span
+| lineRex (LINE txt acc) spans
+
+= (onlyLambs clumps)
+^ foldl _ 0 clumps
+& (acc clump)
+# simplecase (snd | clumpFrag clump) 0
+- LAMB x   | acc x
+- WOLF _ _ | acc
+
+= (paraSeq clumpRex all@[c cs])
+| If (all/=NIL && cs==NIL) clumpRex-c
+^ NEST {|} _ 0
+| Fill 0 (listMap clumpRex all)
+
+(mkInfix rune acc)=(INFX rune (FillR 0 acc) NONE)
+
+= (paraPrefix clumpRex rune frags)
+^ _ rune NIL frags
+? (go rune acc frags)
+: f fs < listCase frags (NEST rune (FillR 0 acc) NONE)
+# simplecase f 0
+- LAMB cl   | go rune (clumpRex cl  :: acc) fs
+- WOLF rx _ | go rune (go rx NIL fs :: acc) NIL
+
+= (paraInfix parenPolicy clumpRex rune initial slay)
+^ _ rune listSing-initial slay
+? (go rune acc slay)
+# simplecase slay 0
+- SEQUE _       | mkInfix rune (parenPolicy clumpRex slay :: acc)
+- PREFX r xs    | mkInfix rune (paraPrefix clumpRex r xs :: acc)
+- INFIX es r xs @ rx (paraSeq clumpRex es)
+                | If r==rune | go rune rx::acc xs
+                | else       | go r listSing-(mkInfix rune rx::acc) xs
+
+= (parenPolicy clumpRex slay)
+# simplecase slay 0
+- SEQUE xs      | paraSeq clumpRex xs
+- PREFX r xs    | paraPrefix clumpRex r xs
+- INFIX es r xs | paraInfix parenPolicy clumpRex r (paraSeq clumpRex es) xs
+
+= (elemRex clumpRex e@SPAN[ln off end l])
+# simplecase l (##{elemRex case not handled challenge (impossible)} l)
+- LWORD    | WORD (spanTxt e) 0
+- LFAIL    | elemRex clumpRex (**SPAN ln off end LRUNE)
+- LRUNE    | NEST (spanTxt e) [] 0
+- LTEXT    | TEXT (spanQuotedStr e) 0
+- LLINE ts | lineRex 0 (listSnoc ts e)
+- LNEST brack xs | If brack (NEST {,} (Map clumpRex | onlyLambs xs) 0)
+                 ^ parenPolicy clumpRex (subLayout _)
+                 | listMap x&(snd | clumpFrag x) (listFromRow xs)
+
+= (rexAddHeir rex c)
+@ heir (rexHeir rex)
+| rexSetHeir (Ifz heir c | rexAddHeir heir c) rex
+
+= (heirSeq clumpRex wut@[x xs])
+| listFoldl rexAddHeir (elemRex clumpRex x)
+| listMap (elemRex clumpRex) xs
+
+(ifix rune acc)=(**SHUT rune (FillR 0 acc) NONE)
+
+= (eatInfix clumpRex tightPolicy rune acc slay)
+# simplecase slay 0
+- SEQUE _       | ifix rune (tightPolicy clumpRex slay :: acc)
+- PREFX _ _     | Die {impossible: double tight rune}
+- INFIX es r xs ^ eatInfix clumpRex tightPolicy r _ xs
+                | If r==rune | (heirSeq clumpRex es :: acc)
+                | listSing | ifix rune (heirSeq clumpRex es :: acc)
+
+= (tightPolicy clumpRex slay)
+# simplecase slay 0
+- SEQUE xs      | heirSeq clumpRex xs
+- PREFX r xs    | Ifz xs (NEST r [] 0)
+                | PREF r [tightPolicy-clumpRex-(subLayout xs)] 0
+- INFIX es r xs | eatInfix clumpRex tightPolicy r (heirSeq clumpRex es)::NIL xs
+
+= (clumpRex clump@SPAN[_ _ _ elems])
+| tightPolicy clumpRex | subLayout | listMap spanFrag | listFromRow elems
+
+= (treeRex t)
+# simplecase t 0
+- TLEAF c     | clumpRex c
+- TNODE r s h | OPEN r (Map treeRex s) (maybeCase h 0 x&(treeRex x))
+
+= (treesRex trees)
+: t ts < listCase trees (Die {treesRex: empty block})
+| If (ts == NIL) | treeRex t
+| else           | treeRex (**TNODE {|} (Fill 0 trees) NONE)
+
+# struct Lam
+| LAM lamPin/Bit lamMark/Bit lamRecr/Bit lamTag/Nat lamArgs/Nat lamBody/Sire
+
+= (rexStep bs mInp)
+@ (bs, trees) | treeStep bs mInp
+@ rexes       | listForEach trees [lino trees]&(lino, treesRex trees)
+| (bs, rexes)
+
+# simpledata Sire
+- V Nat
+- K Any
+- G Bind
+- A Sire Sire
+- L Sire Sire
+- R (Row Sire) Sire
+- M Sire
+- F Lam
+
+# struct Bind
+| BIND bindKey/Nat     bindValue/Any bindCode/Sire
+       bindLocation/Any bindName/Any bindProps/Any
+
+# struct Arg (ARG argDepth/Nat argExp/Sire)
+
+# struct Pot
+| POT potLam/Lam potMark/Bool potDeep/Nat potNeed/Nat potArgs/(List Arg)
+
+# struct Res (RES resExp/Sire resPot/(Maybe Pot))
+
+= apple       | foldl A
+= appList     | listFoldl A
+= (apple_ xs) | foldl A fst-xs (Drop 1 xs)
+
+= (hasRefTo d exp)
+# simplecase exp FALSE
+- V v   | v==d
+- A f x | (hasRefTo d f || hasRefTo d x)
+- L v b | (hasRefTo d v || hasRefTo Inc-d b)
+- R v b | listAny (hasRefTo (Add d Sz-v)) (b :: listFromRow v)
+- M f   | hasRefTo d f
+- F l   | hasRefTo Inc-(Add d lamArgs-l) lamBody-l
+
+= (moveTo from to alreadyBound topExp)
+^ If from==to topExp (_ alreadyBound topExp)
+? (go l e)
+# simplecase e e
+- V v   | If (Lth v l) e (V | Sub (Add v to) from)
+- M x   | M (go l x)
+- A f x | A (go l f) (go l x)
+- L v b | L (go l v) (go Inc-l b)
+- R v b | (ll @ Add l Sz-v)(R (Map (go ll) v) (go ll b))
+- F fn  | F (lamBodySet (go _ lamBody-fn) fn)^(Inc | Add l lamArgs-fn)
+
+= (renum d !n args)
+: a@ARG[ad ax] as < listCase args NIL
+| (moveTo ad (Add d n) 0 ax :: renum d Inc-n as)
+
+= (expandPot d e@POT[lam _ deep _ args])
+@ body | moveTo deep d (Inc lamArgs-lam) lamBody-lam
+| listFoldr L body
+| renum d 0 (ARG d (K 0) :: listRev args)
+
+= (reApp inline d s args f@RES[!fx !me])
+@ otherwise
+    : r@[rd rx] rs < listCase args f
+    | reApp inline d s rs
+    | RES (A fx | moveTo rd d 0 rx)
+    : e@[_ _mark _ pNeed pArgs] < maybeCase me NONE
+    | Ifz pNeed NONE
+    | SOME | potNeedSet-(Dec pNeed) | potArgsSet-(r :: pArgs) e
+: e < maybeCase me otherwise
+| Ifz (potNeed e == 0)&&(potMark e) otherwise
+| inline d s args (expandPot d e)
+
+= (inline d s params syr)
+@ rap (reApp inline d s params)
+# simplecase syr (###{inline: bad sire} syr)
+- K _ | rap | RES syr NONE
+- V v | rap | RES syr | listIdx v s
+- G p | rap | RES syr | resPot | inline d NIL NIL | bindCode PinItem-p
+- M b
+    @ RES[r me] | inline d s NIL b
+    | rap | RES r (fmapMaybe me | potMarkSet TRUE)
+- F lam
+    @ LAM[_ lMark lRecr _ lArgs lBody] lam
+    | rap
+    | RES @ s | listWeld (listRep NONE Inc-lArgs) s
+          @ d | Inc (Add lArgs d)
+          | F | (lamBodySet _ lam)^(resExp | inline d s NIL lBody)
+    | If lRecr NONE
+    | SOME (POT lam lMark d lArgs NIL)
+- R vs b
+    @ nBinds (Sz vs)
+    @ d_ | Add d nBinds
+    @ s_ | listWeld (listRep NONE nBinds) s
+    @ vr | Map (inline d_ s_ NIL) vs
+    @ br | inline d_ s_ params b
+    | RES (R (Map resExp vr) resExp-br) NONE
+- L v b
+    @ RES[vrs vre]  | inline d     s        NIL    v
+    @ RES[brs _bre] | inline Inc-d (vre::s) params b
+    | RES (L vrs brs) NONE
+- A f x
+    @ RES[x _] | inline d s NIL x
+    | inline d s (ARG d x :: params) f
+
+# simpledata Exp
+- VAL Any
+- VAR Nat
+- APP Exp Exp
+
+# struct Fun
+| FUN funPin/Bool funTag/Nat funSlf/Nat funArg/(List Nat) funBin/(Tab Nat Exp)
+      funBod/Exp
+
+= (constantApp f x) | (({VAL}==(Hd f) && {VAL}==(Hd x)) && Neq 1 (Arity fst-f))
+= (foldingApp f x)  | If (constantApp f x) VAL-(fst-f fst-x) (APP f x)
+
+= (ingestAst compile s x st@[env nex])
+    @ go (ingestAst compile)
+
+    # simplecase x (###{ingestAst: bad input} x)
+    - V i   | st,(listIdx i s)
+    - M x   | go s x st
+    - G g   | st,(VAL (**bindValue | PinItem g))
+    - K x   | st,(VAL x)
+    - A f x @ [st f] (go s f st)
+            @ [st x] (go s x st)
+            | st,(foldingApp f x)
+
+    - L v b
+        @ [[env nex] vr] | go s v [env nex]
+        | If (Hd vr == {APP})
+            @ k   | nex
+            @ nex | Inc nex
+            @ env | bstPut env k vr
+            | go (VAR k :: s) b [env nex]
+        | go (vr::s) b [env nex]
+
+    - R vs b
+        @ nBinds | Sz vs
+        @ ks     | Gen nBinds Add-nex
+        @ nex    | Add nex nBinds
+        @ ss     | listWeld (listFromRow | Map VAR ks) s
+        @ st     ^ foldl _ [env nex] (Zip vs ks)
+                 & (st [vx k])
+                 @ [[env nex] vr] (go ss vx st)
+                 | [(bstPut env k vr) nex]
+        | go ss b st
+
+    - F lam
+        @ LAM[pin _mark _rec tag lArg lBod] lam
+        @ slf           | nex
+        @ !nex          | Inc nex
+        @ arg           | listGen lArg (Add nex)
+        @ !nex          | Add nex lArg
+        @ s2            | listWeld (listMap VAR listRev-arg) (VAR slf :: s)
+        @ [bin nex],bod | go s2 lBod [bstEmpty nex]
+        @ [cns free]    | compile nex (FUN pin tag slf arg bin bod)
+        ^ [[env nex] _]
+        | listFoldl APP (VAL cns) (listMap VAR free)
+
+= (analyzeFn fun@FUN[_ _ fSlf fArg fBin fBod])
+^ @ final@[seen tab lis] (_ fBod (bstEmpty, bstEmpty, NIL))
+  | (tab, listRev lis)
+? (go sx st0@[seen0 tab0 lis0])
+# simplecase sx (###{analyzeFn: bad input} sx)
+- VAL _   | st0
+- APP f x | go x (go f st0)
+- VAR k   @ [seen tab lis]
+              | If (bstHas k seen0 || Not (bstHas k fBin)) st0
+              | go (bstIdx k fBin)
+              | (bstIns k k seen0, tab0, lis0)
+         ++ seen
+         ++ bstIns k Inc-(bstIdx k tab) tab
+         ++ If (bstHas k tab) lis k::lis
+
+= (isCodeShaped depth v)
+@ h  | Car v
+@ hh | Car h
+|| (IsNat v && Lth v depth)
+&& (IsApp v)
+|| Eqz-h
+&& (IsApp h)
+|| Eq1-hh
+ | Eqz-hh
+
+= (codeGen fn stat@(refcounts, refSeq))
+@ FUN[fPin fTag fSlf fArg fBin fBod] fn
+@ keep
+    & k
+    : _  < maybeCase (bstSearch k fBin)      FALSE
+    : cv < maybeCase (bstSearch k refcounts) FALSE
+    | Gth cv 1
+@ binds   | listFilter keep refSeq
+@ nBind   | listLen binds
+@ nArg    | listLen fArg
+@ scopeSz | Inc (Add nArg nBind)
+@ scope   | (fSlf :: listWeld fArg binds)
+@ table   | bstFromPairsList (listZip scope | listEnumFrom 0)
+@ cgen
+    ? (cgen s)
+    # simplecase s (###{codeGen: bad sire} s)
+    - VAL k   | If (isCodeShaped scopeSz k) (0 k) k
+    - APP f x | 0 (cgen f) (cgen x)
+    - VAR v   @ fall (bstIdx v table)
+              | If (1 /= bstIdx v refcounts) fall
+              : bx < maybeCase (bstSearch v fBin) fall
+              | cgen bx
+^ If fPin (Pin _) _
+^ Law fTag nArg (listFoldr _ cgen-fBod binds)
+& (k rest)
+| 1 (cgen | bstIdx k fBin) rest
+
+= (compile nex f1)
+@ FUN[pin1 tag1 slf1 arg1 bin1 bod1] f1
+@ isFree            | k&(Not (k==slf1 || (bstHas k bin1 || listHas k arg1)))
+@ stat1@(_, !refs1) | analyzeFn f1
+@ free              | listFilter isFree refs1
+@ newSelf           | listFoldl APP VAR-nex (listMap VAR free)
+@ f2                | funSlfSet | nex
+                    | funArgSet | listWeld free arg1
+                    | funBinSet | bstIns slf1 newSelf bin1
+                    | f1
+@ (f3, stat3)       | If Eqz-free (f1, stat1) (f2, analyzeFn f2)
+| (codeGen f3 stat3, free)
+
+= (compileSire inlined)
+^ (fst _) 0
+@ res@([bin n], bod) (ingestAst compile NIL inlined (bstEmpty, 0))
+| compile (Add 2 n)
+| FUN 0 0 n (listSing (Inc n)) bin bod
+
+(evalSire sire)=(| compileSire | resExp | inline 0 NIL NIL sire)
+
+# struct SireState
+| SIRE_STATE
+  sireNextKey/Nat sireContext/Str sireScope/Scope sireModules/Modules
+  sireLineNum/Nat sireBlock/Rex
+
+# simpledata Leaf
+- DECI Nat
+- IDNT Str
+- CORD Str
+
+= (tryReadLeaf rex)
+: _ style _ txt _ _ _ heir _ _ < rexOpen rex
+| And Eqz-heir
+| If style=={TEXT} | SOME (CORD txt)
+| And style=={WORD}
+| And txt
+| Ifz isDigit-(ByteIx 0 txt) (SOME IDNT-txt)
+| And isSireDecimal-txt
+| SOME (DECI loadSireDecimal-txt)
+
+(tryReadKey rex)=(fmapMaybe (tryReadLeaf rex) fst)
+
+= (resolveUnqualified rex env sym ss)
+@ notFound
+    : bn < bstSearchCase sym sireScope-ss (sireErr ss rex {undefined reference})
+    | (ss, G bn)
+: ng < listFindIndex Eql-(SOME sym) env notFound
+| (ss, V ng)
+
+= (intersperse sep xs)
+: i < Gen Dec-(Mul Sz-xs 2)
+| If (Mod i 2) sep (Ix (Div i 2) xs)
+
+= (lookupVal sym ss)
+@ bind (bstIdx sym | sireScope ss)
+| And bind
+| Ifz (IsPin bind)  | Die {bad bind!},bind
+| SOME (**bindValue | PinItem bind)
+
+= (loadMulti acc rex) | Ifz rex acc | loadMulti (acc rexText-rex) rexHeir-rex
+= (readMultiLine rex) | strCat | intersperse newlineChar | loadMulti 0 rex
+
+= (readAppExpr readExpr env rex ss)
+@ (ss, params) | mapState (readExpr env) (rexKids rex) ss
+^ (ss, _)
+| Br (Sz params) (K 0, fst params) (apple_ params)
+
+= (sireReadKey ss rex)
+| maybeCase (tryReadLeaf rex) (sireErr ss rex {invalid key}) v&(fst v)
+
+= (resolveQualified rex modu name ss)
+@ modules  | **sireModules ss
+: pScope   < bstSearchCase modu modules (sireErr ss rex {undefined module})
+@ scope    | PinItem pScope
+: _ix bind < dictSearchCase name scope (sireErr ss rex {undefined symbol})
+| (ss, G bind)
+
+= (readRefr _readExpr env rex ss)
+@ kids     | rexKids rex
+@ rune     | rexRune rex
+@ nKid     | Sz kids
+| If (nKid == 1)
+    @ n | sireReadKey ss fst-kids
+    | resolveUnqualified rex env n ss
+| If (nKid == 2)
+    @ m | sireReadKey ss fst-kids
+    @ n | sireReadKey ss snd-kids
+    | resolveQualified rex m n ss
+| sireErr ss rex {malformed reference}
+
+= (readLin readExpr env rex ss)
+@ rune (rexRune rex)
+@ kids (rexKids rex)
+| If (Sz kids /= 1) | sireErr ss rex {only one param was expected}
+@ [ss exp] | readExpr env fst-kids ss
+| (ss, M exp)
+
+= (readLet readExpr env rex ss)
+@ kids@[nRex vRex bRex] (rexKids rex)
+| If (Sz-kids /= 3) | sireErr ss rex {expected three params}
+@ [ss v] | readExpr env vRex ss
+@ [ss b] | readExpr (SOME (sireReadKey ss nRex) :: env) bRex ss
+| (ss, L v b)
+
+= (readLetRecBinds acc rex ss ok)
+| Ifz rex (ok ss | FillR 0 acc)
+@ kids | rexKids rex
+@ nKid | Sz kids
+| Ifz (nKid==2 || nKid==3) | sireErr ss rex {invalid bind}
+@ [keyRex valRex moreRex] kids
+@ n | sireReadKey ss keyRex
+| readLetRecBinds ([n valRex] :: acc) moreRex ss ok
+
+= (readLetRec readExpr env rex ss)
+@ kids@[vRex bRex moreRex] (rexKids rex)
+| If (Sz kids /= 2)        | sireErr ss rex {expected two params}
+| If (rexRune vRex /= {=}) | sireErr ss rex {binder must be an (=) rune}
+: ss binds   < readLetRecBinds NIL vRex ss
+@ names      | Map fst binds
+@ varRexes   | Map snd binds
+@ subenv     | listWeld (listFromRow | Map SOME names) env
+@ [ss binds] | mapState readExpr-subenv varRexes ss
+@ [ss body ] | readExpr subenv bRex ss
+| (ss, R binds body)
+
+= (readKet readExpr env rex ss)
+@ kids            | rexKids rex
+@ nKid            | Sz kids
+@ last            | get kids Dec-nKid
+| If (Lth nKid 2) | sireErr ss rex {expected at least two params}
+@ [ss v] | readExpr env last ss
+@ [ss b] | mapState readExpr-(SOME {_} :: env) (Take Dec-nKid kids) ss
+| (ss, L v (apple_ b))
+
+= (readAnonSig rex ss)
+| If rexIsLeaf-rex        | [(sireReadKey ss rex)]
+| If (rexRune rex /= {|}) | sireErr ss rex {invalid lambda signature}
+| Map sireReadKey-ss rexKids-rex
+
+= (readAnonLam readExpr env rex ss)
+@ kids | rexKids rex
+@ nKid | Sz kids
+| If (nKid /= 2)  | sireErr ss rex {expected two params}
+@ [sigRex bodRex] | kids
+@ argNames        | readAnonSig sigRex ss
+@ [ss body]       ^ readExpr _ bodRex ss
+                  ^ listWeld _ env
+                  | listRev (NONE :: listFromRow (Map SOME argNames))
+| (ss, F (LAM FALSE FALSE FALSE 0 Sz-argNames body))
+
+= (readFuncHead rex ss)
+| If (rexRune rex == {**})
+    @ kids@[keyRex] (rexKids rex)
+    | If (Sz kids /= 1)
+        | sireErr ss rex {invalid lambda name}
+    | (TRUE, sireReadKey ss keyRex)
+| (FALSE, sireReadKey ss rex)
+
+= (readWutSig rex ss)
+| If rexIsLeaf-rex (ss, (FALSE, sireReadKey ss rex, []))
+@ kids | rexKids rex
+| If ((rexRune rex /= {|}) || Null kids)
+    | sireErr ss rex {invalid lambda signature}
+@ [inl nam] | readFuncHead fst-kids ss
+| (ss, (inl, nam, Map sireReadKey-ss (Drop 1 kids)))
+
+= (mkF pin mark tag numArgs body)
+@ isRecur (hasRefTo numArgs body)
+| F (LAM pin mark isRecur tag numArgs body)
+
+= (readLam pinned readExpr env rex ss)
+@ kids@[sigRex bodRex] | rexKids rex
+@ nKid                 | Sz kids
+| If (nKid /= 2)       | sireErr ss rex {expected two or three params}
+@ [ss res@[inline f argNames]] | readWutSig sigRex ss
+@ env2 ^ listWeld _ env
+       | listRev | listMap SOME (f :: listFromRow argNames)
+@ nArg | Sz argNames
+@ [ss body] | readExpr env2 bodRex ss
+| (ss, mkF pinned inline f nArg body)
+| else
+
+= (readPrimLeaf readExpr blockRex env rex ss)
+@ heir      | rexHeir rex
+@ invalid   | sireErr ss rex {malformed leaf}
+@ ifNotLeaf | If (rexStyle rex /= {WORD}) invalid
+            : macro   < maybeCase (lookupVal {#} ss) invalid
+            @ [ss ex] | macro ss (PREF {#} [rex] 0)
+            | readExpr env ex ss
+| If heir   | readExpr env (OPEN {#} (rexSetHeir 0 rex, heir) 0) ss
+: leaf      < maybeCase (tryReadLeaf rex) ifNotLeaf
+# simplecase leaf (sireErr ss leaf {readPrimLeaf: bad leaf})
+- DECI n | (ss, K n)
+- CORD c | (ss, K c)
+- IDNT n | resolveUnqualified blockRex env n ss
+
+= (readPinned _readExpr _env rex ss)
+@ sons (rexSons rex)
+| Ifz (Eq1 Sz-sons && Eqz rexHeir-rex) | sireErr ss rex {usage: ##3, ##foo}
+| (ss, K Pin-(sireReadKey ss fst-sons))
+
+= (readPrimExpr readExpr env rex ss)
+: type style rune _ _ _ _ _ _ _ < rexOpen rex
+# simpleswitch type (Die "impossible")
+- {EMBD}
+    | (ss, K rexEmbd-rex)
+- {LEAF}
+    | If (style == {LINE}) | (ss, K readMultiLine-rex)
+    | readPrimLeaf readExpr rex env rex ss
+- {NODE}
+    ^ _ readExpr env rex ss
+    # simpleswitch rune (sireErr ss rex {undefined rune})
+    - {|}   | readAppExpr
+    - {#|}  | readAppExpr
+    - {-}   | readAppExpr
+    - {#-}  | readAppExpr
+    - {**}  | readLin
+    - {#**} | readLin
+    - {@}   | readLet
+    - {#@}  | readLet
+    - {@@}  | readLetRec
+    - {#@@} | readLetRec
+    - {^}   | readKet
+    - {#^}  | readKet
+    - {&}   | readAnonLam
+    - {#&}  | readAnonLam
+    - {?}   | readLam FALSE
+    - {#?}  | readLam FALSE
+    - {??}  | readLam TRUE
+    - {#??} | readLam TRUE
+    - {.}   | readRefr
+    - {#.}  | readRefr
+    - {##}  | readPinned
+    - {###} | readPinned
+
+a=0
+
+= (readExpr e rex ss)
+@ noMacro           | readPrimExpr readExpr e rex ss
+| Ifz rexIsNode-rex | noMacro
+: macro             < maybeCase (lookupVal rexRune-rex ss) noMacro
+@ [ss expo]         | macro ss rex
+| readExpr e expo ss
+
+(evalExpr rex st0)=(pairMap evalSire | readExpr NIL rex st0)
+
+= (isExpRune rune)
+| Has rune , {|} {#|} {-} {#-} {**} {#**} {@} {#@} {@@} {#@@} {^} {#^}
+             {&} {#&} {?} {#?} {??} {#??} {.} {#.} {##} {###}
+
+= (execBind rx (nm, expr) ss@SIRE_STATE[nex ctx scope modules lino blk])
+@ !val | Force (evalSire expr)
+@ !pin | Pin (BIND nex val expr ctx nm 0)
+@ !nex | Inc nex
+@ !ss  | SIRE_STATE nex ctx (bstPut scope nm pin) modules lino blk
+| Trace nm (ss, val)
+
+= (readLawBinder ss sigRex)
+@ kids@[hedRex] (rexKids sigRex)
+@ hedKids    (rexKids hedRex)
+@ hedRune (rexRune hedRex)
+| If (Null kids || (rexRune sigRex /= {|})) | sireErr ss sigRex {bad law sig}
+^ (_, Map sireReadKey-ss (Drop 1 kids))
+| If hedRune/={**} (FALSE, sireReadKey ss hedRex)
+| Ifz (Eq1 | Sz-hedKids) | sireErr ss sigRex {bad binder}
+| (TRUE, sireReadKey ss (fst hedKids))
+
+= (readBindBody bb rex ss)
+@ left  & _               | NIL
+@ right & [[_ self] args] | listRev | listMap SOME (self :: listFromRow args)
+| readExpr (eitherCase bb left right) rex ss
+
+= (readBindCmd ss rex rexes@[sg exprRex])
+| Ifz (Eq2 Sz-rexes) | sireErr ss rex {expected two or three params}
+@ binder             | maybeCase tryReadKey-sg RIGHT-(readLawBinder ss sg) LEFT
+@ [ss expr]          | readBindBody binder exprRex ss
+^ (ss, eitherCase binder v&(v, expr) _)
+& [[doInline tagName] argNames]
+| (tagName, mkF TRUE doInline tagName Sz-argNames expr)
+
+= (doDefine acc rex ss)
+@ heir (rexHeir rex)
+| If (rexRune rex == rexRune heir)
+    @ [ss tb] | readBindCmd ss rex (rexSons rex)
+    @ [ss v1] | execBind rex tb ss
+    | doDefine (Snoc acc v1) heir ss
+@ [ss tb] | readBindCmd ss rex rexKids-rex
+@ [ss v1] | execBind rex tb ss
+| (ss, Snoc acc v1)
+
+= (switchToContext newCtx SIRE_STATE[nex oldCtx scope oldMods lino block])
+^ SIRE_STATE nex newCtx bstEmpty _ 1 block
+| Ifz oldCtx oldMods
+| bstPut oldMods oldCtx Pin-(bstSave scope)
+
+= (doEnter topRex ss)
+@ kids | rexKids topRex
+@ nKid | Sz kids
+@ dead | sireErr ss topRex {malformed module header}
+| If Eq1-nKid
+    @ [targetRex] | kids
+    @ target      | sireReadKey ss targetRex
+    | Ifz (sireContext ss || bstIsEmpty (sireScope ss))
+        | sireErr ss topRex {broken pre-condition}
+    | (switchToContext target ss, 0)
+| If Eq2-nKid
+    @ [targetRex beforeForm] kids
+    @ beforeSons (rexSons beforeForm)
+    | If || (rexRune beforeForm /= {<-})
+         || (rexHeir beforeForm /= 0)
+          | (Sz beforeSons /= 1)
+      dead
+    @ target    | sireReadKey ss targetRex
+    @ wasJustAt | sireReadKey ss fst-beforeSons
+    | If (sireContext ss /= wasJustAt)
+        | sireErr ss topRex {broken pre-condition}
+    | (switchToContext target ss, 0)
+| dead
+
+= (fmtAssert x y)
+^ OPEN "=?=" [_] 0
+| OPEN "*" [x]
+| OPEN "*" [y]
+| 0
+
+= (doAssert rex ss)
+@ kids@[xr yr]      | rexKids rex
+| If (Sz kids /= 2) | sireErr ss rex {#=?= requires two parameters}
+@ [ss xe]           | readExpr NIL xr ss
+@ [ss ye]           | readExpr NIL yr ss
+@ xv                | evalSire xe
+@ yv                | evalSire ye
+| Trace (fmtAssert xr yr)
+| If xv==yv (ss, xv)
+| Trace (fmtAssert EMBD-xv EMBD-yv)
+| sireErr ss rex {assertion failed}
+
+= (doMultiAssert rex ss)
+@ ryn (rexRune rex)
+^ _ NIL rex ss
+? (go acc rex ss)
+@ heir (rexHeir rex)
+| If (Eqz heir || (rexRune heir /= ryn))
+    @ [ss val] | doAssert rex ss
+    | (ss, FillR 0 val::acc)
+@ [ss val] | doAssert (rexSetHeir 0 rex) ss
+| go val::acc heir ss
+
+= (doFilter ryn acc rex ss)
+| Ifz rex ^ (sireScopeSet (bstFromPairsList _) ss, 0)
+          : k < listForEach acc
+          : v < bstSearchCase k (**sireScope ss) | sireErr ss varE-k {undefined}
+          | [k v]
+| If (rexRune rex /= ryn) | sireErr ss rex {bad export-filter syntax}
+@ syms | Map sireReadKey-ss rexSons-rex
+@ acc  | listWeld (listFromRow syms) acc
+| doFilter ryn acc (rexHeir rex) ss
+
+= (importModule rex modu mWhite ss)
+@ otherScope
+    : modPin < bstSearchCase modu sireModules-ss
+                 (sireErr ss rex {undefined module})
+    | If IsPin-modPin (PinItem modPin)
+    | sireErr ss rex {corrupted sire state; module is not a pin}
+@ oldScope (sireScope ss)
+^ sireScopeSet _ ss
+: whitelist < maybeCase mWhite (bstUnion (bstLoad otherScope) oldScope)
+| foldl (acc kv & bstPut acc fst-kv snd-kv) oldScope
+: k < foreach whitelist
+| dictSearchCase k otherScope (sireErr ss (TEXT k 0) {undefined symbol})
+      (_ bind & [k bind])
+
+= (doImport ryn blockRex ss)
+^ _ ss blockRex
+? (go ss rex)
+| Ifz rex (ss, 0)
+@ bad  | sireErr ss rex {bad import}
+@ sons | rexSons rex
+@ nSon | Sz sons
+| If (rexRune rex /= ryn) bad
+| If (nSon == 1)
+    @ [moduleRex] | sons
+    @ modu | sireReadKey ss moduleRex
+    @ ss   | importModule blockRex modu NONE ss
+    | go ss (rexHeir rex)
+| If (nSon == 2)
+    @ [moduleRex ilist] sons
+    @ modu | sireReadKey ss moduleRex
+    @ syms | Ifz (Eql {,} rexRune-ilist && Eqz rexHeir-ilist) bad
+           | Map sireReadKey-ss rexSons-ilist
+    @ ss   | importModule blockRex modu SOME-syms ss
+    | go ss (rexHeir rex)
+| bad
+
+= (executeSire rex ss)
+@ rune     | rexRune rex
+@ doMulti  | (rex ss)&(mapState executeSire rexKids-rex ss)
+@ noMacro
+    ^ _ rex ss
+    | Ifz rexIsNode-rex evalExpr
+    # simpleswitch rune | If isExpRune-rune evalExpr
+                        | sireErr ss rex {undefined rune}
+    - {#=}   | doDefine []
+    - {=}    | doDefine []
+    - {####} | doEnter
+    - {*}    | doMulti
+    - {#*}   | doMulti
+    - {^-^}  | doFilter rune NIL
+    - {#^-^} | doFilter rune NIL
+    - {=?=}  | doMultiAssert
+    - {#=?=} | doMultiAssert
+    - {#:|}  | doImport rune
+    - {:|}   | doImport rune
+: macro     < maybeCase (lookupVal rune ss) noMacro
+@ [ss expo]  | macro ss rex
+| executeSire expo ss
+
+= (consumeLines buf)
+@ wid (ByteSz buf)
+^ _ 0 0
+? (go acc off)
+@ ix (strElemIndexOff newlineChar off buf)
+| If ix==wid | (acc, ByteDrop off buf)
+@ sliceSz    | Sub ix off
+@ acc        | acc (ByteSlice off sliceSz buf)
+| go acc Inc-(Add off sliceSz)
+
+= (sireRepl output prevLino ss bs buf rawInput)
+
+    @ eof          | Eqz rawInput
+    @ (lines, buf) | consumeLines
+                   | strWeld buf (If eof newlineChar rawInput)
+    @ lines        | (If eof (Snoc _ NONE) _)^(Map SOME lines)
+
+    @ (bs, blocks)
+        ^ _ bs NIL (listFromRow lines)
+        ? (go bs acc lines)
+        : line lines  < listCase lines (bs, listCat (listRev acc))
+        @ (bs, frags) | rexStep bs line
+        | go bs (CONS frags acc) lines
+
+    @ [!ss newLino]
+        ^ listFoldl _ [ss prevLino] blocks
+        & ([ss prevLino] [newLino rex])
+
+        @ newLines   | Sub newLino prevLino
+        @ ss         | sireLineNumSet (Add newLines | sireLineNum ss)
+                     | sireBlockSet rex
+                     | ss
+        @ [!ss _out] | executeSire rex ss
+        | [ss newLino]
+
+    | Ifz eof (0, sireRepl output newLino ss bs buf)
+
+    : main < maybeCase (lookupVal {main} ss) Die-{main is not bound}
+    (output main, {NO MORE INPUT})
+
+= (runSireRepl save)
+| sireRepl save 0 (SIRE_STATE 1 0 0 0 0 '()) (BS {REPL} 1 WOODS) ""
+
+main=(runSireRepl _&1)

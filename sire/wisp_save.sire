@@ -1,0 +1,369 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### wisp_save <- wisp
+
+:| newboot
+:| wisp [main wispRead wispPretty wispEatSpace wisp env0]
+
+wispMain=main
+
+:| newboot [main]
+
+E=0
+Z=1
+C=2
+A=3
+
+; <0> -> H[0]
+; <3> -> (<0> 3) -> H[0] A[3] C
+; <x> -> (<0> 3) -> [H[0] (ival x ~[C])]
+;
+; {n a b} -> (| H | A 1 | C | go n | A a | go b
+; <3> -> (<0> 3) -> H A[3] C
+; <x> -> (<0> 3) -> [H (ival x ~[C])]
+;
+; 0 _[x y z] -> x C y C z C
+;
+; f[x y z] -> f x C y C z C
+
+= (ipin ival k item)
+| Ifz item Z-k
+| Z-(ival item C-k)
+
+= (ilaw ival k n a b)
+| Z | A 1 | C | A n | C | A a | C | ival b C-k
+
+= (irow ival o i k)
+| If (Ge i Sz-o) k
+| ival (Ix i o) C-(irow ival o Inc-i k)
+
+= (iapp ival o k _ _)
+| ival Hd-o (irow ival o 0 k)
+
+= (ival o k)
+@ p ipin-ival-k
+@ l ilaw-ival-k
+@ a iapp-ival-o-k
+@ z (A o k)
+@ m _&((A o k))
+| ##3 p l a z m o
+
+(succ x)=(##2 x)
+
+a=0
+(ival 3       E =?= (| A 3 | E))
+a=0
+(ival ##3     E =?= (| Z | A 3 | C | E))
+a=0
+(ival succ    E =?= (| Z | Z | A 1 | C | A "succ" | C | A 1 | C | A 0 | Z | A 2 | C | C | A 1 | C | C | C E))
+a=0
+(ival (3 4)   E =?= (| A 3 | A 4 | C | E))
+a=0
+(ival (3 4 5) E =?= (| A 3 | A 4 | C | A 5 | C | E))
+a=0
+(ival x&x     E =?= (| Z | A 1 | C | A 0 | C | A 1 | C | A 1 | C | E))
+a=0
+
+= (cell [x [f more]])
+@ !fx (f x)
+| [fx more]
+
+= (spair !a !b)
+| [a b]
+
+= (rebuild stack code)
+| Seq stack
+| Ifz Hd-code       | stack
+| If (Eq 1 Hd-code) @ [k]   code | rebuild (spair ##0 stack) k
+| If (Eq 2 Hd-code) @ [k]   code | rebuild (cell stack)      k
+| else              @ [n k] code | rebuild (spair n stack)   k
+
+( rebuild 0 ival-(##3 1)-E     =?=  [(##3 1) 0]    )
+( rebuild 0 ival-(##3)-E       =?=  [##3 0]        )
+( rebuild 0 ival-(x&x)-E       =?=  [x&x 0]        )
+( rebuild 0 ival-Inc-E         =?=  [Inc 0]        )
+( rebuild 0 ival-(I x ?? x)-E  =?=  [(I x ?? x) 0] )
+
+= (count !acc code)
+| Ix Hd-code
+++ acc
+++ @ [k]   code | count acc     k
+++ @ [k]   code | count Inc-acc k
+++ @ [n k] code | count acc     k
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; rebuild 0 ival-env0-E       =?= [env0 0]       )
+; rebuild 0 ival-wispRead-E   =?= [wispRead 0]   )
+; rebuild 0 ival-wispPretty-E =?= [wispPretty 0] )
+; rebuild 0 ival-wisp-E       =?= [wisp 0]       )
+; rebuild 0 ival-wispMain-E   =?= [wispMain 0]   )
+
+; wispCount=(count 0 ival-wispMain-E)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= sbEmpty        | 0
+= (**sbSing k v) | 1 k v 0 0
+
+sbSize=Hd
+
+= (sb k v l r)
+@ sz | Inc (Add sbSize-l sbSize-r)
+| sz k v l r
+
+= (**sbOpen x k)
+| **k (Hd x) (Ix 0 x) (Ix 1 x) (Ix 2 x) (Ix 3 x)
+
+= (**sbCase x empty node)
+| Ifz x empty
+| sbOpen x node
+
+L=sbSing
+N=sb
+E=0
+
+= (singleL key val a right)
+: _ koy vol b c < sbOpen right
+| sb koy vol (sb key val a b) c
+
+= (singleR key val left c)
+: _ koy vol a b < sbOpen left
+| sb koy vol a (sb key val b c)
+
+= (doubleL key val a right)
+: _ rkey rval son d < sbOpen right
+: _ skey sval b   c < sbOpen son
+| sb skey sval (sb key val a b) (sb rkey rval c d)
+
+= (doubleR key val left d)
+: _ lkey lval a son < sbOpen left
+: _ skey sval b c   < sbOpen son
+| sb skey sval (sb lkey lval a b) (sb key val c d)
+
+=?= (singleL 7 7 E (L 8 8))
+    (N 8 8 L-7-7 E)
+
+=?= (singleR 7 7 (L 6 6) E)
+    (N 6 6 E L-7-7)
+
+=?= (singleL 7 7 E (N 8 8 E L-9-9))
+    (N 8 8 L-7-7 L-9-9)
+
+=?= (singleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 8 8 (N 5 5 E L-7-7) L-9-9)
+
+=?= (doubleL 5 5 E (N 8 8 L-7-7 L-9-9))
+    (N 7 7 L-5-5 (N 8 8 E L-9-9))
+
+=?= (doubleR 5 5 (N 2 2 L-1-1 L-3-3) E)
+    (N 3 3 (N 2 2 L-1-1 E) L-5-5)
+
+= (rotateL k v l r)
+: rz _ _ rl rr < sbOpen r
+| If (Lt sbSize-rl (Mul 2 sbSize-rr)) | singleL k v l r
+| else                                 | doubleL k v l r
+
+= (rotateR k v l r)
+: lz _ _ ll lr < sbOpen l
+| If (Lt sbSize-lr (Mul 2 sbSize-ll)) | singleR k v l r
+| else                                 | doubleR k v l r
+
+= (balance k v l r)
+@ lsz | sbSize l
+@ rsz | sbSize r
+@ xsz | Inc (Add lsz rsz)
+@ top | xsz k v l r
+| If (Le (Add lsz rsz) 1) | top
+| If (Ge rsz (Mul 4 lsz)) | rotateL k v l r
+| If (Ge lsz (Mul 4 rsz)) | rotateR k v l r
+| else                    | top
+
+= (sbInsert key val x)
+: xsz xkey xval left right < sbCase x (sbSing key val)
+| Ix (Compare key xkey)
+++ balance xkey xval (sbInsert key val left) right
+++ xsz key val left right
+++ balance xkey xval left (sbInsert key val right)
+
+= (sbSearch key tree)
+: _ k v l r < sbCase tree NONE
+| Ix (Compare key k) (sbSearch key l, SOME v, sbSearch key r)
+
+= (fromList l)
+^ _ 0 l
+? (go !acc l)
+: [k v] l < lcase l acc
+| go (sbInsert k v acc) l
+
+(derp n)=(| fromList | stream | gen n x&((xx @ Mul Inc-x 11)(xx, xx)))
+
+(sbSearch 11 derp-0 =?= NONE)
+(sbSearch 11 derp-1 =?= SOME-11)
+(sbSearch 11 derp-2 =?= SOME-11)
+(sbSearch 11 derp-3 =?= SOME-11)
+(sbSearch 11 derp-4 =?= SOME-11)
+(sbSearch 11 derp-5 =?= SOME-11)
+(sbSearch 11 derp-6 =?= SOME-11)
+(sbSearch 66 derp-6 =?= SOME-66)
+(sbSearch 77 derp-6 =?= NONE)
+
+=?= derp-2 (N 11 11 E (L 22 22))
+=?= derp-3 (N 22 22 (L 11 11) (L 33 33))
+=?= derp-4 (N 22 22 (L 11 11) (N 33 33 E (L 44 44)))
+=?= derp-5 (N 22 22 (L 11 11) (N 44 44 (L 33 33) (L 55 55)))
+
+(NN x l r)=(N x x l r)
+(LL x)=(L x x)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-55 E LL-66))
+    (derp-6)
+
+=?= (NN-44 (NN-22 LL-11 LL-33) (NN-66 LL-55 LL-77))
+    (derp-7)
+
+=?= (sbInsert 2 22 0)
+    (sbSing 2 22)
+
+ex=(NN-4 LL-2 LL-6)
+
+=?= (sbInsert 4 {four} ex)
+    (N 4 {four} (L 2 2) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)
+    (N 4 4 (L 2 {two}) (L 6 6))
+
+=?= (sbInsert 6 {six} ex)
+    (N 4 4 (L 2 2) (L 6 {six}))
+
+=?= (sbInsert 1 {one} ex)
+    (N 4 4 (N 2 2 (L 1 {one}) E) (L 6 6))
+
+=?= (sbInsert 2 {two} ex)   | NN-4 (L 2 {two})            | LL-6
+=?= (sbInsert 3 {three} ex) | NN-4 (NN-2 E (L 3 {three})) | LL-6
+=?= (sbInsert 5 {fiv} ex)   | NN-4 (NN-2 E E)             | NN-6 L-5-{fiv} E
+=?= (sbInsert 6 {six} ex)   | NN-4 LL-2                   | L-6-{six}
+=?= (sbInsert 7 {sev} ex)   | NN-4 LL-2                   | NN-6 E L-7-{sev}
+
+= (deleteFindMax t)
+: _ k v l r < sbOpen t
+| Ifz r [[k v] l]
+@ [km r2] deleteFindMax-r
+| (km, balance k v l r2)
+
+= (deleteFindMin t)
+: _ k v l r < sbOpen t
+| Ifz l [[k v] r]
+@ [km l2] deleteFindMin-l
+| (km, balance k v l2 r)
+
+= (glue l r)
+| Ifz l r
+| Ifz r l
+| If (Gt sbSize-l sbSize-r) ([[km m] l2] @ deleteFindMax l)(balance km m l2 r)
+| else                      ([[km m] r2] @ deleteFindMin r)(balance km m l r2)
+
+= (sbAlter f key x)
+@ emptyCase | ocase f-NONE sbEmpty x&(sbSing key x)
+: xsz xkey xval l r < sbCase x emptyCase
+| Ix (Compare key xkey)
+++ balance xkey xval (sbAlter f key l) r
+++  : newval < ocase f-(SOME xval) (glue l r)
+    | xsz xkey newval l r
+++ balance xkey xval l (sbAlter f key r)
+
+; What is alterKnown?  Oh, where we know that the key is know to be there (so
+; the function is passed the value not wrapped in a Maybe)
+
+= (sbAlterKnown f key x)
+: xsz xkey xval l r < sbCase x sbEmpty
+| Ix (Compare key xkey)
+++ balance xkey xval (sbAlterKnown f key l) r
+++ xsz xkey f-xval l r
+++ balance xkey xval l (sbAlterKnown f key r)
+
+= (sbDel key tree)
+: xsz xkey xval l r < sbCase tree tree
+| Ix (Compare key xkey)
+++ balance xkey xval (sbDel key l) r
+++ glue l r
+++ balance xkey xval l (sbDel key r)
+
+(**sbSearchCase k t nf f)=(ocase (sbSearch k t) nf f)
+
+= (pack f x) | Add (Lsh f 32) x
+= (unpack v) | (Rsh v 32, Word32 v)
+
+= (newNat igo key nats apps table stack nat code)
+@ nats  | sbInsert nat key nats
+@ table | sbInsert key nat table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldNat igo key nats apps table stack nat code)
+@ res   | sbSearch nat nats
+@ v     | fst res
+@ stack | [v stack]
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (insNat igo [key nats apps table stack] nat code)
+@ res     | sbSearch nat nats
+| Ifz res | newNat igo key nats apps table stack nat code
+| else    | oldNat igo key nats apps table stack nat code
+
+= (newApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ apps  | sbInsert htw key   apps
+@ table | sbInsert key [h t] table
+@ stack | [key stack]
+@ key   | Inc key
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (oldApp igo key nats apps table h t stack code)
+@ htw   | pack h t
+@ res   | sbSearch htw apps
+@ stack | (Ix 0 res, stack)
+@ state | Force [key nats apps table stack]
+| igo state code
+
+= (rawInsApp igo key nats apps table h t stack code)
+@ htw     | pack h t
+@ res     | sbSearch htw apps
+| Ifz res | newApp igo key nats apps table h t stack code
+| else    | oldApp igo key nats apps table h t stack code
+
+= (insApp igo [key nats apps table [t [h stack]]] code)
+| **rawInsApp igo key nats apps table h t stack code
+
+= (insPin igo [key nats apps table [i stack]] code)
+| **rawInsApp igo key nats apps table 0 i stack code
+
+= (igo st code)
+| Seq (Force st)
+| Ix Hd-code
+++ st
+++ @ [c]   code (insPin igo st c)
+++ @ [c]   code (insApp igo st c)
+++ @ [n c] code (insNat igo st n c)
+
+= (intern x)
+| igo [1 0 0 0 0] (ival x E)
+
+= (mapi f row)        | array | lmapi f stream-row
+
+(setHas key set)=(Test 0 | searchSet key set)
+
+; 3 =?= intern (Foo x y z ?? "Hello World!" ))
+
+= (summarize [keys nats apps table stack])
+| (keys, Hd nats, Hd apps, Hd table, stack)
+
+(= foo | summarize | Force | intern Add)
+(foo =?= [94 8 85 93 ~[93]])
+(= foo | summarize | Force | intern wispMain)
+(foo =?= [115279 179 115099 115278 [115278 0]])

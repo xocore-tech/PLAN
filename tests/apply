@@ -1,0 +1,13 @@
+;;; Increment
+
+2P 0A _E.
+
+0P 1A _E.
+
+0P 1A 2A _E.
+
+0P 1A 2A 3A _E.
+0P 1A 2A 3A 4A _E.
+0P 1A 2A 3A 4A 5A _E.
+0P 1A 2A 3A 4A 5A 6A _E.
+0P 1A 2A 3A 4A 5A 6A 7A _E.

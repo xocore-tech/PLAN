@@ -1,0 +1,23 @@
+((((((#3 %pin) %law) %app) %zero) %oneplus) (#0 3))
+%pin{3}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) (((#1 2) 3) 4))
+%law{2 3 4}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) (3 4))
+%app{3 4}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) 3[4 5])
+%app{(HEAD 3[4 5]) 5}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) 3{4 5})
+%app{(HEAD 3{4 5}) 5}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) ((3 4) 5))
+%app{(HEAD 3{4 5}) 5}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) (#2 (#2 5)))
+%oneplus{6}
+
+((((((#3 %pin) %law) %app) %zero) %oneplus) 0)
+%zero

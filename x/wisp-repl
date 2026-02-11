@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -e
+
+module=lambda
+
+test -z "$1" || module=$1
+
+make
+
+mkdir -p oldseed xseed
+plunder save -Z oldseed/wisp wisp
+plunder save -Z --new-format xseed/wisp.seed wisp
+
+(x/wisp-make "$module"; cat /dev/stdin) |
+	x/plan xseed/wisp.seed

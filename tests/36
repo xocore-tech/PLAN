@@ -1,0 +1,12 @@
+cords
+
+"closures".
+
+$IsApp (0 1 A)     AF.
+$IsApp (0 1 A 2 A) AF.
+$IsApp ($Add 5 A)  AF.
+
+"others".
+
+$IsApp $IsApp    AF.
+$IsApp (0 1 2 L) AF.

@@ -1,0 +1,121 @@
+Trunc
+((Trunc 0) 1)
+0
+((Trunc 1) 1)
+1
+((Trunc 2) 1)
+1
+((Trunc 63) 1)
+1
+((Trunc 1) 2)
+0
+((Trunc 2) 2)
+2
+((Trunc 3) 2)
+2
+((Trunc 1) 3)
+1
+((Trunc 2) 3)
+3
+((Trunc 3) 3)
+3
+((Trunc 0) 9223372036854775807)
+0
+((Trunc 1) 9223372036854775807)
+1
+((Trunc 2) 9223372036854775807)
+3
+((Trunc 3) 9223372036854775807)
+7
+((Trunc 4) 9223372036854775807)
+15
+((Trunc 61) 9223372036854775807)
+2305843009213693951
+((Trunc 62) 9223372036854775807)
+4611686018427387903
+((Trunc 63) 9223372036854775807)
+9223372036854775807
+((Trunc 64) 9223372036854775807)
+9223372036854775807
+64
+
+0xffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffff
+0xffffffffffffffff
+
+0xffffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffffffffffffffffff
+0xffffffffffffffff
+
+0xffffffffffffffffffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffffffffffffffffffff
+0xffffffffffffffff
+
+
+65
+
+0xffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffff
+0x1ffffffffffffffff
+
+0xffffffffffffffffff
+0x1ffffffffffffffff
+
+0xfffffffffffffffffffffffffffffff
+0x1ffffffffffffffff
+
+0xffffffffffffffffffffffffffffffff
+0x1ffffffffffffffff
+
+0xfffffffffffffffffffffffffffffffff
+0x1ffffffffffffffff
+
+
+66
+
+0xffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffff
+0x3ffffffffffffffff
+
+0xffffffffffffffffff
+0x3ffffffffffffffff
+
+0xfffffffffffffffffffffffffffffff
+0x3ffffffffffffffff
+
+0xffffffffffffffffffffffffffffffff
+0x3ffffffffffffffff
+
+0xfffffffffffffffffffffffffffffffff
+0x3ffffffffffffffff
+
+
+128
+
+0xffffffffffffffff
+0xffffffffffffffff
+
+0xfffffffffffffffff
+0xfffffffffffffffff
+
+0xffffffffffffffffff
+0xffffffffffffffffff
+
+0xfffffffffffffffffffffffffffffff
+0xfffffffffffffffffffffffffffffff
+
+0xffffffffffffffffffffffffffffffff
+0xffffffffffffffffffffffffffffffff
+
+0xfffffffffffffffffffffffffffffffff
+0xffffffffffffffffffffffffffffffff

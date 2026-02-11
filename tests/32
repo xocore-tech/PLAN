@@ -1,0 +1,12 @@
+cords
+
+$wire _ eval _ force _
+
+{
+####m
+
+Foo=(Foo x ? (a @ 3)(x x a))
+
+nineNineThree=(Foo 9)
+}
+A ? force _ 100 pdepth _

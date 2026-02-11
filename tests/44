@@ -1,0 +1,39 @@
+cords
+
+; this is a test of the megapin structure. what we want to do is make a
+; structure where there's a toplevel megapin which indexes multiple levels of
+; structure, so we want each row to be something like `#0[#0[##0[%one]]]` where
+; there are two pins outside, and a megapin that only contains one pin. we then
+; have several of these side by side to make sure the toplevel megapin collects
+; the upper structural pins, and stops at the megapin boundary that contains
+; the numbered cords.
+
+; put some garbage onto the pin heap
+19
+20 21 "fiv" A E pin pin A pin
+A
+E pin
+pin
+.
+
+; Make an app of (0 ##...) so the reference to the megapin lives on the
+; cheney heap and not the stack.
+0
+18
+14 10 "one" A E pin pin A pin
+A
+15 11 "two" A E pin pin A pin
+A
+16 12 "thr" A E pin pin A pin
+A
+17 13 "for" A E pin pin A pin
+A
+E pin
+pin
+A
+?
+
+; perform pin garbage collection
+gc
+?
+

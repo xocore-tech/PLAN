@@ -1,0 +1,31 @@
+$IsPin F
+dup 4P                  A _F.
+dup (1 2 3 L)           A _F.
+dup (0 0 A)             A _F.
+dup 999                 A _F.
+dup 0x10000000000000000 A _F.
+drop
+
+$IsLaw F
+dup 4P                  A _F.
+dup (1 2 3 L)           A _F.
+dup (0 0 A)             A _F.
+dup 999                 A _F.
+dup 0x10000000000000000 A _F.
+drop
+
+$IsApp F
+dup 4P                  A _F.
+dup (1 2 3 L)           A _F.
+dup (0 0 A)             A _F.
+dup 999                 A _F.
+dup 0x10000000000000000 A _F.
+drop
+
+$IsNat F
+dup 4P                  A _F.
+dup (1 2 3 L)           A _F.
+dup (0 0 A)             A _F.
+dup 999                 A _F.
+dup 0x10000000000000000 A _F.
+drop

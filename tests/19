@@ -1,0 +1,6 @@
+cords 10 pdepth
+memcheck $test16 ?
+memcheck eval ?
+memcheck force ?
+memcheck gc ?
+memcheck showheap

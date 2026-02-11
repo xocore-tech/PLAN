@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -ex
+
+latexmk \
+	-interaction=nonstopmode \
+	-outdir=out \
+	-file-line-error \
+	-synctex=1 \
+	-pvc \
+	-pdf \
+	"$@"

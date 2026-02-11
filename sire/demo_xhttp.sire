@@ -1,0 +1,31 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### demo_xhttp <- xhttp
+
+:| newboot
+:| table
+:| xhttp
+
+;> Tab Bar Bar > HttpRequest > Maybe Bar > [HttpResponse AppFun]
+= (handleRequest files [verb path version headers] mybBody)
+| xtrace ["req" (natFromBs verb) (natFromBs path) (natFromBs version)]
+| If | Eq b#{PUT} verb
+    : body < ocase mybBody
+             | NO_PERSIST | HTTP_RESPONSE 400 b#{Bad Request} emptyTable NONE
+    : cur  < ocase | tableLookup path files
+             | PERSIST
+               (HTTP_RESPONSE 201 b#{Created} emptyTable NONE)
+               (handleRequest | tableIns path body files)
+    | PERSIST
+      (HTTP_RESPONSE 200 b#{OK} emptyTable NONE)
+      (handleRequest | tableIns path body files)
+| If | Eq b#{GET} verb
+    : bar < ocase | tableLookup path files
+            | NO_PERSIST | HTTP_RESPONSE 404 b#{Not Found} emptyTable NONE
+    | NO_PERSIST | HTTP_RESPONSE 200 b#{OK} emptyTable (SOME bar)
+| xtrace ["Unhandled" verb]
+| NO_PERSIST | HTTP_RESPONSE 500 b#{Bad Request} emptyTable NONE
+
+= (main args)
+| runHttpServer handleRequest-emptyTable args

@@ -1,0 +1,573 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### table <- bar
+
+; """
+;
+; This uses the [key key key val val val] layout.  This is slightly
+; uglier to print, but it means that only a smaller section of memory
+; needs to be searched.  Also getting an array of keys/vals requires
+; only a slice.
+;
+; These are all called tableFoo because we don't want them to match the
+; tabFoo jets.  And because the Haskell code is run with -Z, these will
+; match even though the hashes don't line up.
+;
+; TODO: These implementations are designed to be used with in-place
+; updates, but atm these are copying updates instead, which will make
+; these quite slow.
+;
+; A Note About `isTab`
+; ====================
+;
+; The `isTab` primitive will no longer be available, since that
+; effectively just checks if the data jet matched (and it no longer
+; exists).  Instead of relying on that, you should instead encode things
+; as a proper ADT using tagged arrays:
+;
+;     0[1 2 3]           ; array
+;     1[key key val val] ; table
+;
+; These implementations are designed to facilitate this use-case.
+; Constructor-functions take a `hd` parameter, which is the tag (pass
+; in 0 if you don't care).  And function which modify tabs return tabs
+; that keep the same tag.
+;
+; In particular, hitch uses `isTab` in `hmCaseNode` and `hsmCaseNode`.
+; And those functions expect either a tab or a tuple.
+;
+;     %[key=val key=val key=val]
+;     [keys nodes hh]
+;
+; This should instead be encoded as:
+;
+;     0[keys nodes hh]
+;     1[key key key val val val]
+;
+; And the switch can then be (If Hd-node) instead of (If isTab-node).
+; """
+
+:| newboot
+
+emptyTable=0
+tableIsEmpty=Nil
+
+= (tableSing k v)      | 0 k v
+= (tableLen t)         | Rsh Sz-t 1
+= (tableKeysRow t)     | take tableLen-t t
+= (tableValsRow t)     | drop tableLen-t t
+
+= (tableFoldlWithKey f acc t)
+@ !sz (tableLen t)
+^ _ sz acc 0
+? (go sz !acc !i)
+| If (Ge i sz) acc
+@ key (Ix i t)
+@ val (Ix Add-sz-i t)
+| go sz (f acc key val) Inc-i
+
+= UpMut    | Pin | & (i v r) | ##15 (080 i v r)
+= CopyMut  | Pin | & (cnt sof dof src dst) | ##15 (0108 cnt sof dof src dst)
+
+= (tableMapWithKey f t)
+| Profile tableMapWithKey
+@ n   | tableLen t
+@ res | Fresh t
+^ _ n res 0
+? (go n !res i)
+| If (Ge i n) res
+@ j   | Add n i
+@ !ri | Ix i res
+@ !rj | Ix j res
+@ res | UpMut j (f ri rj) res
+| go n res Inc-i
+
+= (bsearch key row low end)
+@ ix | Rsh (Add low end) 1
+| If (Ge low end) (Lsh ix 1)
+| Case3     | Compare key (Ix ix row)
+        | bsearch key row low ix
+    | Inc | Mul ix 2
+| bsearch key row Inc-ix end
+
+= (tableLookup k t)
+@ wid   | tableLen t
+@ res   | bsearch k t 0 wid
+@ idx   | Rsh res 1
+@ val   | Ix (Add wid idx) t
+| And (Test 0 res)
+| Seq val (0 val)
+
+exTab=[2 4 6 8 10 12]
+
+(tableLookup 0 exTab =?= 0)
+(tableLookup 2 exTab =?= 0 8)
+(tableLookup 6 exTab =?= 0 12)
+
+= (tableDelIx i t)
+@ n   | Sz t
+@ w   | Rsh n 1
+@ iw  | Inc w
+@ dw  | Dec w
+@ res | Rep 0 0 (Sub n 2)
+@ firstKey
+    | Copy dw 1  0  t
+    | Copy dw iw dw t
+    | res
+@ lastKey
+    | Copy dw 0 0  t
+    | Copy dw w dw t
+    | res
+@ middleKey
+    @ a   | Dec (Sub w i) ; ' how many keys after deleted
+    @ j   | Inc i         ; ' index after key
+    @ jw  | Add j w       ; ' index after value
+    @ idw | Add i dw      ; ' new after-value destination
+    | Copy i 0  0   t     ; ' keys before
+    | Copy i w  dw  t     ; ' vals before
+    | Copy a j  i   t     ; ' keys after
+    | Copy a jw idw t     ; ' vals after
+    | res
+| Ifz i firstKey
+| Case3 (Compare i Dec-w) middleKey lastKey t
+
+(tableDelIx 0 exTab =?= [4 6 10 12])
+(tableDelIx 2 exTab =?= [2 4 8 10])
+(tableDelIx 3 exTab =?= exTab)
+(tableDelIx 1 exTab =?= [2 6 8 12])
+
+= (tableDel k t)
+@ wid | tableLen t
+@ res | bsearch k t 0 wid
+@ idx | Rsh res 1
+| Ifz (Test 0 res) t
+| tableDelIx idx t
+
+( tableDel 2 [1 3 5 7 8 9] =?= [1 3 5 7 8 9] )
+( tableDel 3 [1 3 5 7 8 9] =?= [1 5 7 9] )
+( tableDel 5 [1 3 5 7 8 9] =?= [1 3 7 8] )
+
+= (tableElemIdx i tab)
+@ z tableLen-tab
+| And Lt-i-z
+| (Ix i tab, Ix (Add i z) tab)
+
+(tableElemIdx 0 [1 3 5 "1" "3" "5"] =?= (1, "1"))
+(tableElemIdx 1 [1 3 5 "1" "3" "5"] =?= (3, "3"))
+(tableElemIdx 2 [1 3 5 "1" "3" "5"] =?= (5, "5"))
+(tableElemIdx 3 [1 3 5 "1" "3" "5"] =?= 0)
+
+= (tableInsIx i !k v t)
+@ !n   | Sz t
+@ !w   | Rsh n 1
+@ !w2  | Inc w
+@ !res | Rep 0 v (Add 2 n)
+@ prepend
+    | UpMut 0 k
+    | CopyMut w 0 1      t
+    | CopyMut w w Inc-w2 t
+    | res
+@ insert
+    @ a   | Sub w i         ; ' how many keys after?
+    @ i1  | Inc i
+    @ iw  | Add i w
+    @ iw2 | Add (Add i w) 2
+    | UpMut i k
+    | CopyMut i 0  0      t     ; ' keys before
+    | CopyMut i w  w2     t     ; ' vals before
+    | CopyMut a i  i1     t     ; ' keys after
+    | CopyMut a iw iw2    t     ; ' vals after
+    | res
+@ append
+    | UpMut w k
+    | CopyMut w 0 0  t
+    | CopyMut w w w2 t
+    | res
+| Ifz i prepend
+| Case3 (Compare i w) insert append t
+
+= (tableIns k v t)
+@ wid | tableLen t
+@ res | bsearch k t 0 wid
+@ idx | Rsh res 1
+@ vix | Add wid idx
+| If (Test 0 res) | Up vix v t
+| else            | tableInsIx idx k v t
+
+;  (tableIns 2 999 [1 3 5 1 3 5] =?= [1 2 3 5 1 999 3 5])
+;  (tableIns 3 999 [1 3 5 1 3 5] =?= [1 3 5 1 999 5])
+;  (tableIns 4 999 [1 3 5 1 3 5] =?= [1 3 4 5 1 3 999 5])
+
+= (tableAlter f k t)
+@ wid | tableLen t
+@ res | bsearch k t 0 wid
+@ idx | Rsh res 1
+@ vix | Add wid idx
+@ val | Ix vix t
+| If (Test 0 res)
+    @ new@[newval] (f (0 val))
+    | Ifz new (tableDelIx idx t)
+    | Up vix newval t
+| else
+    @ new@[newval] (f 0)
+    | Ifz new t ; no change
+    | tableInsIx idx k newval t
+
+= (tableTake n t)
+| Profile tableTake
+@ m (tableLen t)
+| CopyMut n 0 0 t
+| CopyMut n m n t
+| Rep 0 0 (Lsh n 1)
+
+= (tableDrop n t)
+| Profile tableDrop
+@ m  | tableLen t
+@ nm | Add n m
+@ z  | Sub m n
+| CopyMut z n  0 t
+| CopyMut z nm z t
+| Rep 0 0 (Lsh z 1)
+
+= (tableSplitAt i t)
+++ tableTake i t
+++ tableDrop i t
+
+= (tableSplitLt k t)
+| Profile tableSplitLt
+@ w     | Rsh Sz-t 1
+@ r     | bsearch k t 0 w
+@ found | Test 0 r
+@ i     | Rsh r 1
+| tableSplitAt i t
+
+;  =?= (gen 6 i&(i, tableSplitLt i [0 2 4 "0" "2" "4"]))
+;   ++ (0, [[]                  [0 2 4 "0" "2" "4"]])
+;   ++ (1, [[0 "0"]             [2 4 "2" "4"]])
+;   ++ (2, [[0 "0"]             [2 4 "2" "4"]])
+;   ++ (3, [[0 2 "0" "2"]       [4 "4"]])
+;   ++ (4, [[0 2 "0" "2"]       [4 "4"]])
+;   ++ (5, [[0 2 4 "0" "2" "4"] []])
+
+emptyUniq=0
+(**uniqSing x)=[x]
+
+(**uniqMin x)=(Ix 0 x)
+(**uniqMax x)=(Last x)
+(**uniqRow x)=x
+uniqTake=take
+uniqDrop=drop
+uniqLen=Sz
+uniqToList=stream
+(**uniqToRow x)=x
+
+(tableMinKey table)=(Ix0 table)
+
+= (tableToPairList t)
+@ n (tableLen t)
+^ _ 0
+? (go i)
+| And (Lt i n)
+++ (Ix i t, Ix (Add n i) t)
+++ go Inc-i
+
+;; TODO: it may not be sorted!
+= (tableFromPairsHd hd pairs)
+| foldl (t [k v])&(tableIns k v t) hd pairs
+
+(**tableFromPairs pairs)=(tableFromPairsHd 0 pairs)
+(**tableFromPairsList pl)=(tableFromPairs array-pl)
+
+;  (tableFromPairs [[3 5] [3 6] [2 5] [4 7]] =?= [2 3 4 5 6 7])
+
+
+= (tableFromPairsAscHd hd pairs)
+| Row hd (Lsh Sz-pairs 1)
+| lweld (lmap fst stream-pairs)
+        (lmap snd stream-pairs)
+
+(**tableFromPairsAsc pairs)=(tableFromPairsAscHd 0 pairs)
+
+;; TODO: it may not be sorted!
+= (tableFromPairList hd pairs)
+@ n (llen pairs)
+| Row hd (Lsh n 1)
+| lweld (lmap fst pairs)
+        (lmap snd pairs)
+
+; TODO: Merge in the balanced variant from the other branch.  It stores
+; the size on each node, which makes this cheap.
+
+= (bstSz t)
+: _ _ l r < bstNodeCase t 0
+| Inc | Add bstSz-l bstSz-r
+
+= (tableFromBst hd tree)
+| Profile tableFromBst
+@ !n (bstSz tree)
+| Ifz n emptyTable
+@ r | Rep hd 0 | Lsh n 1
+| snd
+^ _ 0 r tree
+? (loop !i !acc [xk xv l r])
+@ [!li !acc]
+    | Ifz l [i acc]
+    | loop i acc l
+@ !acc | UpMut li xk acc
+@ !acc | UpMut Add-n-li xv acc
+| Ifz r [Inc-li acc]
+| loop Inc-li acc r
+
+
+;  ( tableFromBst "hi" bstEmpty                          =?= "hi"         )
+;  ( tableFromBst "hi" (bstSing 1 2)                     =?= "hi" 1 2     )
+;  ( tableFromBst "hi" (bstFromPairsList ~[[1 2] [3 4]]) =?= "hi" 1 3 2 4 )
+
+(uniqHas k s)=(Test 0 | bsearch k s 0 Sz-s)
+
+uniqIsEmpty=IsNat
+
+uniqNotEmpty=IsApp
+
+uniqEx=[1 3 5]
+=?= (map n&(uniqHas n uniqEx) [0 1 2 3 4 5 6])
+  [0 1 0 1 0 1 0]
+
+uniqCatRowAsc=cat
+
+(uniqCatRowAsc [[3 4] [7 9] [11 33]] =?= [3 4 7 9 11 33])
+
+; Walks across the two tables to perform union.
+= (tableUnionLoop ok ov opos apos bpos f asz bsz a b)
+^ _ ok ov opos apos bpos
+? (go !ok !ov !opos !apos !bpos)
+| If | Eq apos asz
+    @ restSz | Sub bsz bpos
+    @ !ok | CopyMut restSz bpos opos b ok
+    @ !ov | CopyMut restSz Add-bsz-bpos opos b ov
+    (Add opos restSz, ok, ov)
+| If | Eq bpos bsz
+    @ restSz | Sub asz apos
+    @ !ok | CopyMut restSz apos opos a ok
+    @ !ov | CopyMut restSz Add-asz-apos opos a ov
+    (Add opos restSz, ok, ov)
+@ ak | Ix apos a
+@ av | Ix Add-apos-asz a
+@ bk | Ix bpos b
+@ bv | Ix Add-bpos-bsz b
+| Case3     (Compare ak bk)
+        @ !ok | UpMut opos ak ok
+        @ !ov | UpMut opos av ov
+        | go ok ov (Inc opos) (Inc apos) bpos
+    @ !abv | f av bv
+    @ !ok  | UpMut opos ak ok
+    @ !ov  | UpMut opos abv ov
+    | go ok ov (Inc opos) (Inc apos) (Inc bpos)
+@ !ok | UpMut opos bk ok
+@ !ov | UpMut opos bv ov
+| go ok ov (Inc opos) apos (Inc bpos)
+
+= (tableUnionWith f a b)
+| Profile tableUnionWith
+| If tableIsEmpty-a b
+| If tableIsEmpty-b a
+@ aSz | tableLen-a
+@ bSz | tableLen-b
+@ maxSz | Add aSz bSz
+@ ok | Rep Hd-a 0 maxSz
+@ ov | Rep Hd-a 0 maxSz
+@ [count ok ov]
+    | tableUnionLoop ok ov 0 0 0 f aSz bSz a b
+@ !out
+    | CopyMut count 0 0 ok
+    | CopyMut count 0 count ov
+    | Rep Hd-a 0 (Lsh count 1)
+out
+
+(**tableUnion x y)=(tableUnionWith (const x _ ?? x) x y)
+
+= (uniqIntersectFill !acc !i aFull bFull)
+| Ifz aFull | take i acc ; TODO: jet and do in-place
+| Ifz bFull | take i acc ; TODO: jet and do in-place
+@ [a aRest] aFull
+@ [b bRest] bFull
+@ lt | uniqIntersectFill acc             i     aRest bFull
+@ eq | uniqIntersectFill (UpMut i a acc) Inc-i aRest bRest
+@ gt | uniqIntersectFill acc             i     aFull bRest
+| Case3 (Compare a b) lt eq gt
+
+= (uniqIntersect a b)
+| And uniqNotEmpty-a
+| And uniqNotEmpty-b
+@ acc | Rep 0 0 | Add Sz-a Sz-b
+| uniqIntersectFill acc 0 stream-a stream-b
+
+uniqElem=Ix
+
+= (uniqInsert x s)
+@ wid | Sz s
+@ res | bsearch x s 0 wid
+@ idx | Rsh res 1
+| If (Test 0 res) s
+| insert idx x s
+
+= (unsafeDeleteAt i n row)
+@ a | Dec (Sub n i)
+| Copy i 0     0 row
+| Copy a Inc-i i row
+| Rep Hd-row 0 Dec-n
+
+= (uniqDel k s)
+@ wid | Sz s
+@ res | bsearch k s 0 wid
+@ idx | Rsh res 1
+| Ifz (Test 0 res) s
+| unsafeDeleteAt idx wid s
+
+=?= | gen 7 i&(i | uniqDel i ("hi" 1 3 5))
+  ++ 0 | "hi" 1 3 5
+  ++ 1 | "hi" 3 5
+  ++ 2 | "hi" 1 3 5
+  ++ 3 | "hi" 1 5
+  ++ 4 | "hi" 1 3 5
+  ++ 5 | "hi" 1 3
+  ++ 6 | "hi" 1 3 5
+
+= (uniqUnionLoop i acc alist blist)
+| Ifz alist
+    | Ifz blist (take i acc)
+    @ [b bs] blist
+    | uniqUnionLoop Inc-i (UpMut i b acc) 0 bs
+@ [a as] alist
+| Ifz blist
+    | uniqUnionLoop Inc-i (UpMut i a acc) as 0
+@ [b bs] blist
+| Case3     | Compare a b
+        | uniqUnionLoop Inc-i (UpMut i a acc) as blist
+    | uniqUnionLoop Inc-i (UpMut i a acc) as bs
+| uniqUnionLoop Inc-i (UpMut i b acc) alist bs
+
+= (uniqUnionGeneric xs an ys bn)
+@ xSmallest | fst xs
+@ xLargest  | Last xs
+@ ySmallest | fst ys
+@ yLargest  | Last ys
+| If (Gt xSmallest yLargest) | weld ys xs
+| If (Gt ySmallest xLargest) | weld xs ys
+@ acc (Rep 0 0 (Add an bn))
+| uniqUnionLoop 0 acc stream-xs stream-ys
+
+= (uniqUnion a@[a1] b@[b1])
+| Profile uniqUnion
+@ an       | Sz a
+@ bn       | Sz b
+@ sum      | Add an bn
+@ abSing   | Case3 (Compare a1 b1) [a1 b1] [a1] [b1 a1]
+@ aSing    | uniqInsert fst-a b
+@ bSing    | uniqInsert fst-b a
+| Ifz an   | b
+| Ifz bn   | a
+| If an==1 | If bn==1 abSing aSing
+| If bn==1 | bSing
+| else     | uniqUnionGeneric a an b bn
+
+= (splitAt i row)
+| (take i row, drop i row)
+
+uniqSplitAt=splitAt
+
+= (uniqSplitLt k s)
+@ w | Sz s
+@ r | bsearch k s 0 w
+@ i | Rsh r 1
+| uniqSplitAt i s
+
+=?= | gen 7 i&(i | uniqSplitLt i [1 3 5])
+ ++ 0 | ([], [1 3 5])
+ ++ 1 | ([], [1 3 5])
+ ++ 2 | ([1], [3 5])
+ ++ 3 | ([1], [3 5])
+ ++ 4 | ([1 3], [5])
+ ++ 5 | ([1 3], [5])
+ ++ 6 | ([1 3 5], [])
+
+;;; Set Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+( uniqInsert 0 [1 4] =?= [0 1 4] )
+( uniqInsert 2 [1 4] =?= [1 2 4] )
+( uniqInsert 4 [1 4] =?= [1 4]   )
+( uniqInsert 5 [1 4] =?= [1 4 5] )
+
+;  ( uniqUnion [9]       [8]       =?= [8 9]         )
+;  ( uniqUnion [1]       [1]       =?= [1]           )
+;  ( uniqUnion [1 3]     [1]       =?= [1 3]         )
+;  ( uniqUnion [1 3]     [2]       =?= [1 2 3]       )
+;  ( uniqUnion [1 3]     []        =?= [1 3]         )
+;  ( uniqUnion [1 2 3]   []        =?= [1 2 3]       )
+;  ( uniqUnion []        []        =?= []            )
+;  ( uniqUnion []        [1]       =?= [1]           )
+;  ( uniqUnion [1 2]     [3 4]     =?= [1 2 3 4]     )
+;  ( uniqUnion [0 1 2 4] [0 3 4 9] =?= [0 1 2 3 4 9] )
+
+;  ( uniqIntersect [1 2]     [0 1]     =?= [1]   )
+;  ( uniqIntersect [1 2]     [1 2 3]   =?= [1 2] )
+;  ( uniqIntersect [1 2]     [3 4]     =?= []    )
+;  ( uniqIntersect [1 3 5 7] [3 4 5]   =?= [3 5] )
+
+
+;;; Table Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;  (tableSplitAt 1 exTab =?= ([2 8], [4 6 10 12]))
+
+;  =?= | "hi" [2 8] [4 10] [6 12]
+;    | tableFoldlWithKey (x a b & x (0 a b)) "hi" exTab
+
+; Unit test commented out because plunder crashes on this because IIUC
+; ##15 isn't implemented there.
+;
+;(tableMapWithKey Add exTab =?= [2 4 6 10 14 18])
+
+
+;  (tableTake 2 exTab =?= [2 4 8 10])
+;  (tableDrop 0 exTab =?= exTab)
+;  (tableDrop 1 exTab =?= [4 6 10 12])
+;  (tableDrop 2 exTab =?= [6 12])
+;  (tableDrop 3 exTab =?= 0)
+
+;  ( tableAlter _&0     6 exTab =?= 0 2 4 8 10             )
+;  ( tableAlter _&(0 0) 6 exTab =?= 0 2 4 6 8  10 0        )
+;  ( tableAlter _&0     8 exTab =?= 0 2 4 6 8  10 12       )
+;  ( tableAlter _&(0 0) 0 exTab =?= 0 0 2 4 6  0  8  10 12 )
+;  ( tableAlter _&(0 0) 3 exTab =?= 0 2 3 4 6  8  0  10 12 )
+;  ( tableAlter _&(0 0) 8 exTab =?= 0 2 4 6 8  8  10 12 0  )
+
+;  ( tableToPairList exTab =?= ~[[2 8] [4 10] [6 12]] )
+
+;  ( tableUnion exTab exTab =?= exTab )
+
+;  ( tableUnion exTab (0 77 77) =?= 0 2 4 6 77 8 10 12 77 )
+;  ( tableUnion (0 77 77) exTab =?= 0 2 4 6 77 8 10 12 77 )
+
+;  ( tableUnion (0 2 77) exTab =?= 0 2 4 6 77 10 12 )
+;  ( tableUnion exTab (0 2 77) =?= exTab )
+
+setSplitLt=uniqSplitLt
+emptySet=emptyUniq
+setCatRowAsc=uniqCatRowAsc
+setDel=uniqDel
+setSing=uniqSing
+setUnion=uniqUnion
+setLen=uniqLen
+setSplitAt=uniqSplitAt
+setMin=uniqMin
+setIsEmpty=uniqIsEmpty
+setHas=uniqHas
+setMax=uniqMax
+setIntersect=uniqIntersect
+setDrop=uniqDrop
+setTake=uniqTake
+setToList=uniqToList
+setInsert=uniqInsert
+setToRow=uniqToRow
+setElem=uniqElem

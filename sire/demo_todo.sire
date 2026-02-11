@@ -1,0 +1,145 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### demo_todo <- wisp
+
+; '] The basic idea here is to create a simple persistent TODO
+; '] application, and then actually use it.
+; ']
+; '] In addition to keeping data persistent in the usual way, there
+; '] should be an automatic export to a text file for backups.  This will
+; '] help the TODO list survive bugs, and survive changes to the runtime
+; '] system.
+; ']
+; '] The most basic version possible is probably a CLI application:
+; ']
+; ']     $ ./boot xseed/wisp.seed todos
+; ']     $ ./todos ls
+; ']     $ ./todos add "Build a trivial CLI application."
+; ']     $ ./todos add "Test it."
+; ']     $ ./todos add "Commit it."
+; ']     $ ./todos add "Add TODOs."
+; ']     $ ./todos ls
+; ']     0: TODO Build a trivial CLI application
+; ']     1: TODO Test it
+; ']     2: TODO Comit it.
+; ']     3: TODO Add TODOs
+; ']     $ for x in 0 1 2 3; do ./todos did $x; done
+; ']     $ ./todos ls
+; ']     $ ./todos | sponge backup
+; ']     0: DONE Build a trivial CLI application
+; ']     1: DONE Test it
+; ']     2: DONE Comit it.
+; ']     3: DONE Add TODOs
+; ']     $ for x in 0 1 2 3; do ./todos $x; done
+; ']     $ ./todos ls
+; ']     $ ./todos import < backup
+; ']     $ ./todos ls
+; ']     0: DONE Build a trivial CLI application
+; ']     1: DONE Test it
+; ']     2: DONE Comit it.
+; ']     3: DONE Add TODOs
+; ']
+; '] Eventually, this can be made into a web application.  But that
+; '] should wait until we have something actually working bcause that's
+; '] pretty annoying if we want to do it without using any dependencies.
+; '] It means writting HTML, CSS, and Javascript directly as strings
+; '] within a Sire file with no build system and no dependencies.
+
+:| newboot
+:| wisp
+
+; ') This is a trivial CLI program with a built-in database which records
+; ') the number of times that is has been run.
+
+= (showUsage _)
+^ xwriteAll 2 _ (Bytes _) 0
+} usage:
+}     todo ls
+}     todo rm note-id
+}     todo add "Note message"
+}     todo did note-id
+}
+
+# simpledata Item
+- TODO msg
+- DONE msg
+
+= (badItem item)
+| xtrace ("bad-item" item)
+| Die ("bad-item" item)
+
+= (exportTodo i item)
+| xputstrLn
+| strCat
+| weld (showNat i, ") ")
+# simplecase item (badItem item)
+- TODO msg ["TODO " msg]
+- DONE msg ["DONE " msg]
+
+= (exportDb st)
+@ n (Sz st)
+^ _ 0
+? (loop i)
+| If (Ge i n) st
+| Seq (exportTodo i (Ix i st))
+| loop (Inc i)
+
+= (invalid st cmd args)
+| xtrace ("bad command" cmd)
+    | st
+
+= (readCmd cmd)
+| Ifz cmd       0
+| If cmd=="ls"  1
+| If cmd=="add" 2
+| If cmd=="did" 3
+| If cmd=="rm"  4
+| else          5
+
+= (readId idstr bad ok)
+| Ifz (idstr && strAll isNatChr idstr) bad
+| ok (loadNum 0 (lexplode idstr))
+
+= (unsafeDeleteAt i n row)
+@ a | Dec (Sub n i)
+| Copy i 0     0 row
+| Copy a Inc-i i row
+| Rep Hd-row 0 Dec-n
+
+= (step st args@[cmd param])
+@ usage
+    | Seq (showUsage 0)
+    | Die "invalid-usage"
+@ invalid
+    | xtrace ("bad command" cmd args)
+    | usage
+@ badId
+    | invalid
+@ lsCmd
+    | Seq (exportDb st)
+    | st
+@ addCmd
+    | If (Ne 2 Sz-args) invalid
+    | snoc st (TODO param)
+@ didCmd
+    | If (Ne 2 Sz-args) invalid
+    : !i <- **readId (Ix1 args) invalid
+    | If (Ge i Sz-st) badId
+    @ item@[msg] (Ix i st)
+    @ st (Up i (DONE msg) st)
+    | st
+@ rmCmd
+    | If (Ne 2 Sz-args) invalid
+    : !i <- **readId (Ix1 args) invalid
+    | If (Ge i Sz-st) badId
+    @ st | unsafeDeleteAt i (Sz st) st
+    | st
+| Case (readCmd cmd) [lsCmd lsCmd addCmd didCmd rmCmd] invalid
+
+= (prog st args)
+@ !st (step st args)
+| Seq (##12 (prog st))
+| 0
+
+main=(prog [])

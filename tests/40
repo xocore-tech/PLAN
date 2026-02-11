@@ -1,0 +1,9 @@
+$Hd F
+
+dup 9             A_F.
+dup (9 8 A)       A_F.
+dup (9 8 A 7 A)   A_F.
+dup (0P 9 A)      A_F.
+dup (1P 9A 9A 9A) A_F.
+
+drop

@@ -1,0 +1,10 @@
+%const(2)=>1
+%dist(3)=>[[1 3] [2 3]]
+(((%dist(3)=>[[1 3] [2 3]] %const(2)=>1) %const(2)=>1) 9)
+9
+
+
+const
+dist
+(((dist const) const) 9)
+9

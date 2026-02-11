@@ -1,0 +1,21 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### cat <- newboot
+
+:| newboot
+
+bufSz=8192
+
+= (mainLoop buf)
+@ res (##10 (0 0 buf bufSz 0))
+| Or IsNat-res
+@ got | Hd res
+@ buf | fst res
+| And got
+| Seq (xwriteAll 1 buf got 0)
+| mainLoop buf
+
+= (main args)
+@ !buf (Bex (Lsh bufSz 3))
+| mainLoop buf

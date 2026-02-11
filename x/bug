@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+set -ex
+
+make xseed/wisp.seed x/plan
+
+x/wisp-make lambda > .tmp.lisp
+
+cat > .gdb-script <<'EOF'
+
+### Basic Workflow Setup
+
+# make x/plan
+# file x/plan
+# define again
+# make x/plan
+# file x/plan
+# run xseed/wisp.seed <.tmp.lisp
+# end
+
+#make x/plan xseed/wisp.seed
+#file x/plan
+#define again
+#make x/plan xseed/wisp.seed
+#file x/plan
+#run xseed/wisp.seed <wisp/op.lisp
+#end
+
+make x/rpn
+file x/rpn
+define again
+make x/rpn
+file x/rpn
+run test
+end
+
+# make x/plan
+# file x/plan
+# define again
+# make x/plan
+# file x/plan
+# run xseed/sire.seed < sire/0
+# end
+
+### Printing Macros
+
+define stk
+call stk()
+end
+
+define sstk
+call sstk()
+end
+
+define sk
+call s($arg0)
+end
+
+define pv
+call v($arg0)
+end
+
+### Load Custom Printing Commands
+
+py exec(open("bug.py").read())
+
+
+### Begin
+
+# break fastsnore
+# break pokesnore
+break funnelsnore
+again
+
+EOF
+
+gdb -x .gdb-script

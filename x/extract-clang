@@ -1,0 +1,5 @@
+#!/usr/bin/env -S awk -f
+
+/^\\begin{clang}/ { clang=1; next }
+/^\\end{clang}/   { clang=0; next }
+clang             { print }

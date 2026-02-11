@@ -1,0 +1,29 @@
+bitsz
+
+0xF0000000000000000 1?\-.
+
+0xF0000000000000000                 dec.
+0                                   dec.
+1                                   dec.
+0x7ffffffffffffffe                  dec.
+0x7fffffffffffffff                  dec.
+0x8000000000000000                  dec.
+0x8000000000000001                  dec.
+0xffffffffffffffff                  dec.
+0x10000000000000000                 dec.
+0x20000000000000000                 dec.
+0x100000000000000000000000000000001 dec.
+
+0 inc.
+1 inc.
+
+0x7ffffffffffffffe                  inc.
+0x7fffffffffffffff                  inc.
+memcheck
+0x8000000000000000                  inc.
+0xfffffffffffffffe                  inc.
+0xffffffffffffffff                  inc.
+0x10000000000000000                 inc.
+0x100000000000000000000000000000000 inc.
+0x10000000000000000ffffffffffffffff inc.
+0x1ffffffffffffffffffffffffffffffff inc.

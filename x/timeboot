@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -ex
+
+make x/boot
+
+rm -f ./output
+x/boot boot.seed output
+time ./output < sire/newboot.sire  > /dev/null 2>/dev/null

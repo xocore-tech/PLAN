@@ -1,0 +1,23 @@
+;;;; This is (SKK 9) => 9
+
+	(1P "const" A 2 A 1 A)
+eval _
+dup
+	(1P "dist" A 3 A (0 (0 1 A 3 A) A (0 2 A 3 A) A) A)
+eval _
+RR
+9A
+_ eval .
+
+\\
+
+;;;; This is the same thing, but with pinned laws.
+
+	(1P "const" A 2 A 1 A)
+0 pin rap eval _
+dup
+	(1P "dist" A 3 A (0 (0 1 A 3 A) A (0 2 A 3 A) A) A)
+0 pin rap eval _
+RR
+9A
+_ eval .

@@ -1,0 +1,195 @@
+#!/usr/bin/env python
+
+# This is an adaptation of
+# https://github.com/kokke/tiny-bignum-c/blob/master/scripts/test_rand.py to
+# our assembler bignum library.
+
+#
+# Can take one command-line parameter: number of tests to run
+#
+# Runs NTESTS random tests of selecting an operand from + - *
+# and applying it on two random operands and comparing the result
+# to the one Python can calculate
+#
+# In effect, this verifies the C implementation against Python's.
+#
+
+from random import Random, choice
+from subprocess import Popen, PIPE
+from typing import Union, Tuple
+import sys
+import os
+import math
+from tqdm import tqdm
+
+def run_process(
+    command: Union[str, list[str]],
+    input_data: str = "",
+    encoding: str = 'utf-8'
+) -> Tuple[str, str, int]:
+    """
+    Run an external process, provide input data, and capture output.
+
+    Args:
+        command: Command to run (string or list of strings)
+        input_data: String to pass to process's stdin
+        encoding: Character encoding for input/output
+
+    Returns:
+        Tuple of (stdout, stderr, return_code)
+
+    Example:
+        stdout, stderr, rc = run_process('./rpn', 'test input data')
+        stdout, stderr, rc = run_process(['./rpn', '--flag'], 'test input data')
+    """
+    # Convert string command to list if needed
+    if isinstance(command, str):
+        command = command.split()
+
+    # Create process with pipes for stdin/stdout/stderr
+    process = Popen(
+        command,
+        stdin=PIPE,
+        stdout=PIPE,
+        stderr=PIPE,
+        text=True,  # Use text mode instead of bytes
+        encoding=encoding
+    )
+
+    # Send input and get output, waiting for process to complete
+    stdout, stderr = process.communicate(input=input_data)
+
+    return stdout, stderr, process.returncode
+
+def format_bigint(n):
+    if n < 1<<63: return f"{n}"
+    return '0x{:x}'.format(n)
+
+# Check for command-line arguments - default to 100 tests
+if len(sys.argv) == 2:
+  NTESTS = int(sys.argv[1])
+else:
+  NTESTS = 100
+
+# Give the operands names
+ADD = 0
+SUB = 1
+MUL = 2
+DIV = 3
+AND = 4
+OR  = 5
+XOR = 6
+RSHIFT = 7
+LSHIFT = 8
+NUM_OPERATIONS = 9 # this variable should be 1 larger than the last supported operation ^^
+
+# TODO:
+#
+# POW = 7
+# MOD = 8
+
+# Instantiate object of Random-class for choosing an operand and two operators
+rand = Random()
+
+print("\nRunning %d random tests (parsed using from_string):\n" % NTESTS)
+
+# Create progress bar
+progress_bar = tqdm(total=NTESTS, desc="Testing", unit="tests")
+
+# List of command-strings leading to failures - expected to be empty if no bugs
+# are triggered
+failed_tests = []
+
+for i in range(NTESTS):
+  i += 1
+  # Choose random operand
+  operation = choice(range(NUM_OPERATIONS))
+
+  strop = "UNDEF"
+  expected = 0
+
+  # Generate two large operators
+  if operation in [LSHIFT, RSHIFT]:
+    oper1 = rand.randint(0, 0xFEDCBA987654321FEDCBA987654321FEDCBA987654321FEDCBA9876543)
+    oper2 = rand.randint(0, 512)
+  else:
+    oper1 = rand.randint(0, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+    oper2 = rand.randint(0, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+
+  # Calculate expected value
+  if operation == ADD:
+    strop = '+'
+    expected = oper1 + oper2
+  elif operation == SUB:
+    # bignum only supports unsigned, so if B > A
+    # we swap operands to avoid the underflow / wrap-around
+    if oper2 > oper1:
+      tmp = oper1
+      oper1 = oper2
+      oper2 = tmp
+    strop = '-'
+    expected = oper1 - oper2
+  elif operation == MUL:
+    strop = '*'
+    expected = oper1 * oper2
+  elif operation == DIV:
+    if oper2 > oper1:
+      tmp = oper1
+      oper1 = oper2
+      oper2 = tmp
+    # avoid dividing by 0
+    if oper2 == 0:
+      oper2 += 1
+    strop = '/'
+    expected = int(oper1 / oper2)
+  elif operation == AND:
+    strop = '&'
+    expected = oper1 & oper2
+  elif operation == OR:
+    strop = '|'
+    expected = oper1 | oper2
+  elif operation == XOR:
+    strop = '^'
+    expected = oper1 ^ oper2
+  # elif operation == POW:
+  #   expected = oper1 ** oper2
+  # elif operation == MOD:
+  #   # avoid dividing by 0
+  #   if oper2 == 0:
+  #     oper2 += 1
+  #   expected = oper1 % oper2
+  elif operation == LSHIFT:
+    strop = '<'
+    expected = oper1 << oper2
+  elif operation == RSHIFT:
+    strop = '>'
+    expected = oper1 >> oper2
+  else:
+    print("UNHANDLED: ", operation);
+
+  line = "0x%.0x 0x%.0x %s?" % (oper1, oper2, strop)
+
+  (result, _, _) = run_process('./x/rpn', line)
+  result = result.strip()
+
+  format_expected = format_bigint(expected)
+  if format_expected != result:
+      failed_tests.append({
+          'input': line,
+          'expected': format_expected,
+          'actual': result
+      })
+
+  progress_bar.update(1)
+
+progress_bar.close()
+
+# Print failures after the progress bar is complete
+if failed_tests:
+    print("\nFailed Tests:")
+    for test in failed_tests:
+        print(f"\nError   : {test['input']}")
+        print(f"Expected: {test['expected']}")
+        print(f"Actual  : {test['actual']}")
+else:
+    print("\nAll tests passed successfully!")

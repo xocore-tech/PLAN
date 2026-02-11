@@ -1,0 +1,37 @@
+-  <1> should increment the given arity instead of crashing if given a
+   zero arity.
+
+-  <2> should go away, and be implemented by constructing a law
+   and then fetching it's arity.
+
+
+Case
+====
+
+-   Right now `Case` casts it's input to a nat before switching, which
+    means that non-nat inputs are treated as 0.  Would it make more sense
+    to instead treat non-nat keys as OOB?
+
+    -   This would make the jetted implementation slightly faster.
+
+    -   The behavior seems more intuitive.  In particular, it matches
+        behavior of `If`.
+
+    -   This would also affect the behavior of `Ix` in the same ways.
+
+Seed
+====
+
+-   Explore the idea of making seed use LETREC (all frags are in scope
+    in all frags).  This will make seeds bigger, but.
+
+    1.  May simplify encoding and decoding (since the scope and refsz
+        aren't constantly changing)
+
+    2.  May improve compression potential, since repeated references to
+        a certain node will have a consistent bit-pattern instead of being
+        different in different contexts.
+
+    3.  Makes it possible to encode infinite data structures in Seed.
+        (You mostly don't want to do this, but it would be cool if this
+        was possible).

@@ -1,0 +1,6 @@
+bitsz
+0xffffffffffffffff                      .  ; u64
+0xffffffffffffffff 1                  + .  ; u64 -> u65
+0xffffffffffffffff 0xffffffffffffffff + .  ; u64 -> u65
+0xffffffffffffffffffffffffffffffff      .  ; u128
+0xffffffffffffffffffffffffffffffff 1  + .  ; u128 -> u129

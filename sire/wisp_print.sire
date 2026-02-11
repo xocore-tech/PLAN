@@ -1,0 +1,142 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### wisp_print <- wisp
+
+:| wisp
+
+
+;;; Plan To Wisp ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (pinWisp planWisp deep x)
+@ full (planWisp deep x)
+@ n full
+@ p full
+@ l | ["CURLED" [(1 (Name x)) (1 (Arity x)) ".."]]
+@ a | cons (planWisp deep (Hd x)) (map (const "..") x)
+| 0 "PIN"
+| If deep full
+| Case4 (Type x) n p l a
+
+( pinWisp "x" NO 5       =?= ["PIN" ("x" 0 5)]     )
+( pinWisp "x" NO (Pin 5) =?= ["PIN" ("x" 0 (Pin 5))] )
+( pinWisp "x" NO (x&x)   =?= ["PIN" ["CURLED" [(1 0) (1 1) ".."]]] )
+
+= (planWisp deep x)
+@ r (planWisp deep)
+@ nat | 1 x
+@ law | 0 "CURLED" [(r (Name x)) (r (Arity x)) (r (Body x))]
+@ pin | pinWisp planWisp deep (Unpin x)
+@ app | cons (planWisp deep (Hd x)) | map (planWisp deep) x
+| Case4 (Type x) nat pin law app
+
+
+;;; Line Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (wispShowWrap t rest)
+@ az | Case3 t "()" "[]" "{}"
+@ a  | Load8 0 az
+@ z  | Load8 1 az
+| Seq2 a z
+| lcons a (lsnoc rest z)
+
+= (wispShowVal deep wispShowLazy v)
+| Ifz (IsNat v)
+    | lcons "#"
+    | wispShowLazy deep (planWisp deep v)
+| If (Or (Lt v 256) (Nil (strAll isPrint v)))
+    | lsing (showNat v)
+| [dquote [v [dquote []]]]
+
+= (**wispCase x@[v] val sym exp)
+@ exprCase
+  | Ifz (Eq 2 (Sz x))        (exp 0 x)
+  | If (Eq "BRACED" (Ix0 x)) (exp 1 Ix1-x)
+  | If (Eq "CURLED" (Ix0 x)) (exp 2 Ix1-x)
+  | exp 0 x
+| Case3 (Hd x) exprCase (**val v) (**sym x)
+
+= (wispShowLazy deep x)
+| wispCase x (wispShowVal deep wispShowLazy) lsing
+& (t ps)
+| wispShowWrap t
+| lcat
+| lintersperse (lsing " ")
+| lmap (wispShowLazy deep) (stream ps)
+
+= (wispShow deep x)
+| lstrcat | wispShowLazy deep x
+
+(PARENS xs)=xs
+(BRACED xs)=["BRACED" xs]
+(CURLED xs)=["CURLED" xs]
+(VAL v)=(1 v)
+
+( wispShow 1 (PARENS [])                    =?= "()"       )
+( wispShow 1 "a"                            =?= "a"        )
+( wispShow 1 (BRACED ["f" "x"])             =?= "[f x]"    )
+( wispShow 1 (CURLED ["f" "x"])             =?= "{f x}"    )
+( wispShow 1 (PARENS ["f" "x"])             =?= "(f x)"    )
+( wispShow 1 (PARENS ["f" "x"])             =?= "(f x)"    )
+( wispShow 1 (PARENS ["f" (VAL 3)])         =?= "(f 3)"    )
+( wispShow 1 (VAL Inc)                      =?= "#(PIN 2)" )
+( wispShow 1 (VAL (x&x))                    =?= "#{0 1 1}" )
+
+
+;;; Pretty Print ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (wispPrettyWrap t rest)
+@ az | Case3 t "()" "[]" "{}"
+@ a  | Load8 0 az
+@ z  | Load8 1 az
+| Seq2 a z
+| lcons a (lsnoc rest z)
+
+= (wispPrettyVal deep wispPrettyLazy d v)
+| Ifz (IsNat v)
+    | lcons "#"
+    | wispPrettyLazy deep d ( v)
+| If (Or (Lt v 256) (Nil (strAll isPrint v)))
+    | lsing [(showNat v)]
+| [dquote [v [dquote 0]]]
+
+= (fits rem more@[s ss])
+| And rem
+| Ifz more 1
+| fits (Sub rem (Bytes s)) ss
+
+(indent n)=(| lstrcat | lcons 10 | lrep " " n)
+
+(indent 3 =?= strWeld 10 "   ")
+
+= (wispPrettyLazyExp wispPrettyLazy deep d x t ps)
+@ d           | Inc d
+@ z           | Sz ps
+| Ifz z       | ##PrettyEr ("impossible" d z x)
+| If (Eq 1 z) | ##PrettyEr ("impossible" d z x)
+| wispPrettyWrap t
+| lcat
+| lintersperse (lsing (indent d))
+| lmap (wispPrettyLazy deep d) (stream ps)
+
+= (wispPrettyLazy deep d x)
+@ oneline | wispShowLazy deep x
+| lsing
+| lstrcat
+| If (fits 60 oneline) oneline
+| wispCase x (wispPrettyVal deep wispPrettyLazy d) lsing
+| wispPrettyLazyExp wispPrettyLazy deep d x
+
+= (wispPretty deep x)
+| lstrcat | wispPrettyLazy deep 0 x
+
+( wispPretty 1 (PARENS [])                    =?= "()"       )
+( wispPretty 1 "a"                            =?= "a"        )
+( wispPretty 1 (BRACED ["f" "x"])             =?= "[f x]"    )
+( wispPretty 1 (CURLED ["f" "x"])             =?= "{f x}"    )
+( wispPretty 1 (PARENS ["f" "x"])             =?= "(f x)"    )
+( wispPretty 1 (PARENS ["f" "x"])             =?= "(f x)"    )
+( wispPretty 1 (PARENS ["f" (VAL 3)])         =?= "(f 3)"    )
+( wispPretty 1 (VAL Inc)                      =?= "#(PIN 2)" )
+( wispPretty 1 (VAL (x&x))                    =?= "#{0 1 1}" )
+( wispPretty 1 (VAL drop)                     =?= "#()"      )

@@ -1,0 +1,51 @@
+$Ix F
+
+dup 0        A (3 4 A 5 A) A _F.
+dup 1        A (3 4 A 5 A) A _F.
+dup 2        A (3 4 A 5 A) A _F.
+dup 4        A (3 4 A 5 A) A _F.
+dup (0 0 A)  A (3 4 A 5 A) A _F.
+dup (0 0 AE) A (3 4 A 5 A) A _F.
+dup 5P       A (3 4 A 5 A) A _F.
+
+dup 999999999999999999999 A (3 4 A 5 A) A _F.
+
+dup 0 A 9 A _F.
+dup 2 A 9 A _F.
+
+dup 0 A 999999999999999999 A _F.
+dup 2 A 999999999999999999 A _F.
+
+dup 0 A 9P A _F.
+dup 2 A 9P A _F.
+
+dup 0 A (1 2 3 L) A _F.
+dup 2 A (1 2 3 L) A _F.
+
+drop
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+$Br F
+
+dup 0        A (3 4 A 5 A) A 999 A _F.
+dup 1        A (3 4 A 5 A) A 999 A _F.
+dup 2        A (3 4 A 5 A) A 999 A _F.
+dup 4        A (3 4 A 5 A) A 999 A _F.
+dup (0 0 A)  A (3 4 A 5 A) A 999 A _F.
+dup (0 0 AE) A (3 4 A 5 A) A 999 A _F.
+dup 5P       A (3 4 A 5 A) A 999 A _F.
+
+dup 999999999999999999999 A (3 4 A 5 A) A 999 A _F.
+
+dup 0 A 9 A 999 A _F.
+dup 2 A 9 A 999 A _F.
+
+dup 0 A 999999999999999999 A 999 A _F.
+dup 2 A 999999999999999999 A 999 A _F.
+
+dup 0 A 9P A 999 A _F.
+dup 2 A 9P A 999 A _F.
+
+dup 0 A (1 2 3 L) A 999 A _F.
+dup 2 A (1 2 3 L) A 999 A _F.

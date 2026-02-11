@@ -1,0 +1,36 @@
+cords
+
+$Gen _F_\
+dup 5 A 2P A _F.\
+dup 5 A ($Add 1 A) A _F.\
+dup 5 A ($Add ($Add 1 A 2 A) A) A _F.
+
+pop \
+
+$StrHas _F_
+"a" A "bac" A _F.
+
+\
+
+$StrFoldr _F_
+dup 5 A 9 A "bac" A _F.
+pop
+
+\
+
+$If  F 0 A 2 A 9 A _F.
+$If  F 1 A 2 A 9 A _F.
+$Ifz F 0 A 2 A 9 A _F.
+$Ifz F 1 A 2 A 9 A _F.
+
+\
+
+0
+	$Eql "a" A "b" AF
+	$Eql "a" A "a" AF A
+	$Eql "a" A "c" AF A
+A
+	$Eql "b" A "a" AF
+	$Eql "a" A "a" A A
+	$Eql "c" A "a" AF A
+AF.

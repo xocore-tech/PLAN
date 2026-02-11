@@ -1,0 +1,29 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### lcg <- hitch
+
+:| newboot
+
+= (Word1 x)   | Trunc 1 x
+= (Word8 x)   | Trunc 8 x
+= (Word16 x)  | Trunc 16 x
+= (Word32 x)  | Trunc 32 x
+= (Word64 x)  | Trunc 64 x
+= (Word128 x) | Trunc 128 x
+= (Word256 x) | Trunc 256 x
+
+w32=Word32
+
+= (mul32 x y)   | w32 (Mul x y)
+= (add32 x y)   | w32 (Add x y)
+= (lcg x)       | add32 1013904223 | mul32 x 1664525
+= (mkRand seed) | lcg seed
+
+(Trace !a b)=b
+
+= (genBitsNat bits gen)
+@ gen  | lcg gen
+@ !nat | Trunc bits gen
+| Trace ["generated" nat [bits "bits"]]
+| (gen, nat)

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+DEMO=demo_xhttp
+
+set -ex
+
+tmp=$(mktemp -u .demo-XXXXXXX)
+
+cleanup () {
+    rm -rf "./$tmp" "./${tmp}.output" "./${tmp}.result" "./${tmp}.response"
+}
+
+trap cleanup EXIT
+
+xseedfile=.demo-xhttp.xseed
+
+set -ex
+
+plunder xsave -Z --new-format $xseedfile demo_xhttp
+
+set +e
+
+x/plan $xseedfile > ${tmp}.stdout 2> ${tmp}.stderr &
+
+rm -f ${tmp}.response # ${tmp}.stdout ${tmp}.stderr
+
+pid=$!
+
+sleep 2
+
+curl -X PUT -d "Hello World" http://localhost:8080/hello-world
+
+curl -s -X GET http://localhost:8080/hello-world >> ${tmp}.response
+
+kill $pid
+wait $pid
+
+okay=$(cat ${tmp}.response | grep 'Hello World' | wc -l)
+
+if [ $okay -eq 1 ]
+then echo "TEST SUCCESS: $DEMO"
+else echo "TEST FAILED: $DEMO"
+fi

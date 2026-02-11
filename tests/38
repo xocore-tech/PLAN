@@ -1,0 +1,37 @@
+cords
+
+$BitSz F
+$Bex F
+
+"show full nat".
+
+D0 AE.
+D1 AE.
+D2 AE.
+D4 AE.
+D8 AE.
+D16 AE.
+D32 AE.
+D48 AE.
+D62 AE.
+D63 AE.
+D64 AE.
+D65 AE.
+D66 AE.
+D67 AE.
+D68 AE.
+
+"match bit sizes".
+
+D125_AE   (2 push RE) .\
+D126_AE   (2 push RE) .\
+D127_AE   (2 push RE) .\
+D128_AE   (2 push RE) .\
+D129_AE   (2 push RE) .\
+D130_AE   (2 push RE) .\
+D333_AE   (2 push RE) .\
+D334_AE   (2 push RE) .\
+D335_AE   (2 push RE) .\
+D336_AE   (2 push RE) .\
+D3333_AE  (2 push RE) .\
+D33333_AE (2 push RE) .

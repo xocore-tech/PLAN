@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -e
+
+xtodo=./.tmpexe.todo
+
+rm -f "$xtodo"
+
+plunder save --new-format -Z xseed/todo demo_todo
+
+x/boot xseed/todo "$xtodo"
+
+$xtodo help || echo code=$?
+$xtodo add "First Item"
+$xtodo add "Second Item"
+$xtodo ls
+$xtodo add "Hello World!"
+$xtodo did 2
+$xtodo ls
+$xtodo rm 1
+$xtodo

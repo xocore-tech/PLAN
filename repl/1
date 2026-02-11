@@ -1,0 +1,28 @@
+= "Pin"
+<{Pin 1 (0 <0> 1)}>
+= "Case"
+<{Case 6 (0 (0 (0 (0 (0 (0 <3> 1) 2) 3) 4) 5) 6)}>
+= "Law"
+<{Law 3 (0 (0 (0 <1> 1) 2) 3)}>
+= "Inc"
+<{Inc 1 (0 <2> 1)}>
+= "Die"
+<{Die 1 (0 <die> 1)}>
+= "PlanCase"
+<{PlanCase 5 (0 (0 (0 (0 (0 (0 Case 1) 2) 3) 4) (0 {0 2 1} 4)) 5)}>
+= "NatCase"
+<{NatCase 3 (0
+             (0
+              (0 (0 (0 (0 Case (0 {0 2 1} 1)) (0 {0 4 1} 1)) (0 {0 3 1} 1)) 1)
+              2)
+             3)}>
+= "Force"
+<{Force 1 (0 (0 (Law 0 1) (0 (0 0) 1)) (0 0))}>
+= "Seq"
+<{Seq 2 (0 (0 (0 NatCase 2) (0 {0 2 1} 2)) 1)}>
+= "DeepSeq"
+<{DeepSeq 2 (0 (0 Seq (0 Force 1)) 2)}>
+= "Trace"
+<{Trace 2 (0 (0 DeepSeq 1) 2)}>
+= "main"
+It works!

@@ -1,0 +1,634 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+
+#### xhttp <- hitch
+
+; TODO: Also handle 'Expect: 100-Continue' headers for further compliance with
+; what curl wants.
+
+:| newboot
+:| bar
+:| table
+
+;  typedef#MapRef#Nat
+;  typedef#FD#Nat
+
+;;; Syscalls
+= sysRead 0
+= sysWrite 1
+= sysOpen 2
+= sysClose 3
+= sysPoll 7
+= sysMmap 9
+= sysSocket 41
+= sysBind 49
+= sysListen 50
+= sysSetSockOpt 54
+= sysAccept4 288
+
+;;; sysSocket constants:
+= afInet 2
+= sockStream 1
+= sockNonBlock 2048
+
+;;; sysSetSockOpt constants:
+= solSocket 1
+= soReuseAddr 2
+
+= ipprotoTcp 6
+= tcpNoDelay 1
+
+
+;;; open flags
+= oWronly 1
+= oCreat 64
+= oTrunc 512
+= oWronlyCreatTrunc 577
+
+= (Die msg)
+| xtrace "CRASHING"
+| xtrace msg
+| ##Die msg
+
+;;;
+= msgNoSignal 16384  ; 0x4000
+
+;;; bind constants
+= eightyEighty 36895  ; htons(8080)
+= sizeofSockaddrIn 16
+
+;;; poll constants
+= pollIn 1
+= pollPri 2
+= pollOut 4
+= pollHup 16
+
+= bufsize 4096
+; int32(-1) as uint32.
+= negativeOne 4294967295
+
+(= XPtrOp  ##13)
+(= XBufOp  ##14)
+
+;  -----------------------------------------------------------------------
+
+= (bind sockfd buf)
+| syscall | sysBind sockfd buf sizeofSockaddrIn
+;| syscall (SYSCALL [sysBind sockfd buf sizeofSockaddrIn]) return
+
+;  -----------------------------------------------------------------------
+
+# struct HttpRequest
+| HTTP_REQUEST verb/Bar path/Bar version/Bar headers/(Tab Bar Bar)
+
+# struct HttpResponse
+| HTTP_RESPONSE code/Nat message/Bar headers/(Tab Bar Bar) body/(Maybe Bar)
+
+# simpledata HttpState
+- HS_BUFFERING_HEADERS Bar
+- HS_READING_BODY req/HttpRequest contentLen/Nat off/Nat xbuf/Bar
+- HS_SENDING_RESPONSE keepAlive/Bool offset/Nat bars/(List Bar)
+
+# simpledata SocketType
+- STLISTENING
+- STCLIENT HttpState
+
+;  -----------------------------------------------------------------------
+
+; type AppFun = HttpRequest > Maybe Bar > ReqResult
+
+# simpledata ReqResult
+- NO_PERSIST response/HttpResponse
+- PERSIST respones/HttpResponse newFun/Nat
+
+# struct ServerState
+| SERVER_STATE opened/(Tab FD SocketType) dirty/Bool app/AppFun
+
+; > ServerState > (Tab FD SocketType > Tab FD SocketType) > ServerState
+= (ssModifyOpened ss@[opened dirty app] fun)
+@ !modified | fun opened
+| SERVER_STATE modified dirty app
+
+= (ssSetFun [opened dirty _] newFun)
+| SERVER_STATE opened dirty newFun
+
+;  -----------------------------------------------------------------------
+
+= crlf     x#0d0a
+= crlfcrlf x#0d0a0d0a
+
+;  > [Bar Bar] > Bar
+= (bsPairToHeaderLine [k v])
+| bsCat [k b#{: } v crlf]
+
+= (**maybeCase maybe nothing just)
+| Ifz maybe nothing
+| **just (Ix0 maybe)
+
+; > HttpResponse > List Bar
+= (makeResponse [code message headers body])
+@ statusLine ~[b#{HTTP/1.1 } (natBar showNat-code) b#{ } message crlf]
+@ headersWithLength
+    @ lenAsBar
+        : bodyBar < ocase body b#{0}
+        | natBar | showNat | bsSz bodyBar
+    | tableIns b#{Content-Length} lenAsBar headers
+@ headerLines
+    | lmap bsPairToHeaderLine
+    | tableToPairList headersWithLength
+@ bodyList
+    : out < ocase body ~[emptyBs]
+    ~[out]
+| lcat ~[statusLine headerLines ~[crlf] bodyList]
+
+;;;;;;;
+
+= (performClose ss sockfd)
+| xtrace ["disconnected" sockfd]
+@ !s | syscall | sysClose sockfd
+| ssModifyOpened ss (tableDel sockfd)
+
+; Finishes the request, closing the socket unless the client asked to be
+; > Nat > Bar > ServerState > FD > ServerState
+= (finishRequest keepAlive remainingBar ss sockfd)
+| If keepAlive
+    | ssModifyOpened ss
+    | tableIns sockfd (STCLIENT | HS_BUFFERING_HEADERS remainingBar)
+| performClose ss sockfd
+
+;  -----------------------------------------------------------------------
+
+; > MapRef > FD > Nat
+= (bindToLocalhost buf sockfd)
+;;; bind(sockfd, struct, sizeof(struct))
+;
+;  struct sockaddr_in {
+;      short            sin_family;   // e.g. AF_INET
+;      unsigned short   sin_port;     // e.g. htons(3490)
+;      struct in_addr   sin_addr;     // see struct in_addr, below
+;      char             sin_zero[8];  // zero this if you want to
+;  };
+;
+@ !setOption | poke buf 2 0 afInet
+@ !setPort   | poke buf 2 2 eightyEighty
+@ !setInAddr | poke buf 1 4 127
+@ !setInAddr | poke buf 1 5 0
+@ !setInAddr | poke buf 1 6 0
+@ !setInAddr | poke buf 1 7 1
+| bind sockfd buf
+
+= (setBinarySockOpt buf sockfd level optName val)
+@ !setope | poke buf 1 0 val
+| syscall | sysSetSockOpt sockfd level optName buf 4
+
+
+; Pokes the data for a set of file descriptors into a memory region to pass
+; to poll().
+;
+;  member var size: 4, 2, 2
+;
+;  struct pollfd {
+;      int   fd;         /* file descriptor */
+;      short events;     /* requested events */
+;      short revents;    /* returned events */
+;  };
+;> MapRef > Row (FD, SocketType) > Nat
+= (fillPollInput buf sockets)
+@ l | Sz sockets
+^ _ 0
+? (go i)
+| If (Eq i l) l
+@ [fd stype] | Ix i sockets
+@ base | Mul i 8
+;
+@ !a | poke buf 4 base fd
+@ ptype
+  # simplecase stype (Die {unexpected stype})
+  - STLISTENING
+    pollIn
+  - STCLIENT httpState
+    # simplecase httpState (Die {unexpected hs})
+    - HS_BUFFERING_HEADERS _
+      pollIn
+    - HS_READING_BODY _ _ _ _
+      pollIn
+    - HS_SENDING_RESPONSE _ _ _
+      pollOut
+@ !b | poke buf 2 (Add base 4) ptype
+@ !c | poke buf 2 (Add base 6) 0
+;
+| go | Inc i
+
+; Parse the poll result data into a list of events that have to be handled.
+;> MapRef > Row (FD, Nat) > List (FD, SocketType, Nat)
+= (parsePollResults buf fds)
+@ l | Sz fds
+^ _ 0 NIL
+? (go i out)
+| If (Eq i l) out
+@ offset | Add 6 | Mul i 8
+@ !reventbs | peek buf offset 2
+@ revent | barNat reventbs
+| Ifz revent | go (Inc i) out
+@ inrow | Ix i fds
+| go
+      | Inc i
+  | CONS [(Ix 0 inrow) (Ix 1 inrow) revent] out
+
+; Runs poll() for one tick, returning a list of events.
+;> MapRef > ServerState > List (FD, SocketType, Nat)
+= (runPoll buf [opened _])
+@ fdsPairs             | array | tableToPairList opened
+@ !count               | fillPollInput buf fdsPairs
+@ !r                   | syscall | sysPoll buf count 1000 0
+| parsePollResults buf fdsPairs
+
+; > MapRef > ServerState > FD > ServerState
+= (handleListeningPollIn buf ss sockfd)
+@ !clientfd | syscall | sysAccept4 sockfd 0 0 sockNonBlock
+| xtrace ["connected" clientfd]
+@ !n | setBinarySockOpt buf clientfd ipprotoTcp tcpNoDelay 1
+| ssModifyOpened ss
+| tableIns clientfd (STCLIENT | HS_BUFFERING_HEADERS emptyBs)
+
+; > Bar > Bar > [Bar Bar]
+= (bsSplitFirst ndl hystk)
+| lcase (bsSubstringSearch ndl hystk) [hystk emptyBs]
+& (x _)
+++ bsTake x hystk
+++ bsDrop (Add bsSz-ndl x) hystk
+
+=?= [b#abcd b#{}] | bsSplitFirst b#{z} b#{abcd}
+
+=?= [b#a b#d]     | bsSplitFirst b#{bc} b#{abcd}
+
+;  > List Bar > Maybe HttpRequest
+= (parseHeader lines)
+: headerLine rest < lcase lines NONE
+@ headerParts     | bsSplitOn b#{ } headerLine
+: verb restLine   < lcase headerParts NONE
+: path restLine   < lcase restLine NONE
+: version _       < lcase restLine NONE
+@ pairs | tableFromPairsList | lmap (bsSplitFirst b#{: }) rest
+| SOME | HTTP_REQUEST verb path version pairs
+
+=?= NONE | parseHeader b#{}
+
+;  =?=   ^ (SOME (HTTP_REQUEST b#{GET} b#{whatever.html} b#{HTTP/1.1} _))
+;        | tableSing b#{Content-Type} b#{text/plain}
+;      | parseHeader ~[b#{GET whatever.html HTTP/1.1} b#{Content-Type: text/plain}]
+
+; all tokens in http are case insensitive.
+= (strToLower in)
+@ l | Bytes-in
+^ _ 0 in
+? (go i !s)
+| If (Eq i l) s
+@ c | Load8 i s
+| If (isUpper c)
+    | go Inc-i (Store8 i (Add c 32) s)
+| go Inc-i s
+
+=?= {onetwo}
+  | strToLower {OnEtWo}
+
+= errMinU64 18446744073709547521 ; 0xfffffffffffff001
+= u64Max    18446744073709551615 ; 0xffffffffffffffff
+
+= eagain      11
+= epipe       32
+= econnreset  104
+
+; call xsend, parse result back into {LEFT errno} or {RIGHT val}.
+= (xsend fd nat sz off flags)
+@ !u | ##16 | 0 fd nat sz off flags
+| If (Ge u errMinU64)
+    | LEFT | Inc | Sub u64Max u
+| RIGHT u
+
+;; Attempts to send the next bar, but then
+= (handleClientSendingPollOut buf keepAlive offset bars ss fd)
+: b bs < lcase bars | finishRequest keepAlive b#{} ss fd
+;
+@ bl | bsSz b
+| Ifz bl
+    | handleClientSendingPollOut buf keepAlive 0 bs ss fd
+@ sz | min bufsize | Sub bl offset
+;  | trk [=b]
+;  | trk [=buf =bl =sz =offset]
+;
+; TODO: This xsend needs to be replaced with xbuf calls. This used to be a call
+; to xwrite, which is backed by sys_write, but you aren't supposed to use write
+; for sockets: you must use send(..., MSG_NOSIGNAL)
+@ !sendRet | xsend fd b sz offset msgNoSignal
+| ecase sendRet
+    & errno
+    | If (errno == eagain)
+        | xtrace [{eagain}]
+        ss
+    | If (errno == econnreset)
+        | xtrace [{econnreset}]
+        ; the pipe is gone, start closing the connection instead.
+        | performClose ss fd
+    | If (errno == epipe)
+        | xtrace [{epipe}]
+        ; the pipe is gone, start closing the connection instead.
+        | performClose ss fd
+    | Die [{Unhandled errno} errno]
+& writtenSz
+;| xtrace [{write} writtenSz]
+@ newOffset | Add offset writtenSz
+| If | Eq newOffset bl
+    ; we've finished sending this bar, proceed to the next one.
+    | handleClientSendingPollOut buf keepAlive 0 bs ss fd
+| handleClientSendingPollOut buf keepAlive newOffset bars ss fd
+
+; > MapRef > HttpRequest > Maybe Bar > Bar > ServerState > FD > ServerState
+= (readRequest buf req@[_ _ ver headers] body extraBar orig@[opened dirty app] sockfd)
+@ [!response !ss]
+    # simplecase (app req body) (Die {Invalid handleRequest result})
+    - NO_PERSIST response
+        [response orig]
+    - PERSIST response newApp
+        [response (SERVER_STATE opened 1 newApp)]
+@ responseBars | makeResponse response
+;| xtrace ["responseBars" (map natFromBs | array responseBars)]
+;
+; now that we have a list of response bars to send back to the client, we
+; switch over into the response part of the loop.
+@ keepAlive
+    : connection < ocase (tableLookup b#{Connection} headers)
+                   | If (Eq b#{HTTP/1.1} ver) 1 0
+    | Eq {keep-alive} | strToLower | natFromBs connection
+| handleClientSendingPollOut buf keepAlive 0 responseBars ss sockfd
+
+;; stolen from sire_27_sire.sire, which isn't in the boot sequence?
+; > Bit > Maybe a > Maybe a
+(**maybeGuardNot check cont)=(If check NONE cont)
+
+; > Bit > Maybe a > Maybe a
+(**maybeGuard check cont)=(maybeGuardNot (not check) cont)
+
+; > Bar > Maybe Nat
+= (parseNat bar)
+@ wid (bsSz bar)
+@ hed (bsIx 0 bar)
+| maybeGuardNot (Eq 0 wid)
+| maybeGuard    (isDigit hed)
+@ acc (Sub hed {0})
+^ (_ acc 1)
+? (go acc ix)
+| If (Ge ix wid) (SOME acc)
+@ c (bsGet bar ix)
+| maybeGuard (isDigit c)
+@ !acc (Add (Mul 10 acc) (Sub c {0}))
+| go acc Inc-ix
+
+
+; Respond with a 400. 400 errors always close the connection.
+; > MapRef > ServerState > ServerState
+= (respond400AndClose buf ss sockfd)
+@ responseBars
+    | makeResponse
+    | HTTP_RESPONSE 400 b#{Bad Request} emptyTable b#{}
+| handleClientSendingPollOut buf 0 0 responseBars ss sockfd
+
+; > MapRef > ServerState > FD > Bar > ServerState
+= (handleClientBufferingHeadersPollIn buf ss clientfd inBuffer)
+@ !sz | syscall | sysRead clientfd buf 1024
+| Ifz sz
+    | performClose ss clientfd
+@ !msg | peek buf 0 sz
+; TODO: When you move to the new interpreter, clean up nats vs bars.
+;
+@ buffer | bsWeld inBuffer msg
+@ splits | bsSubstringSearch crlfcrlf buffer
+;
+: x _ < lcase splits
+          | ssModifyOpened ss
+          ^ tableIns clientfd _
+          | STCLIENT | HS_BUFFERING_HEADERS buffer
+@ requestBuf | bsTake x buffer
+@ restBuf    | bsDrop (Add 4 x) buffer
+@ lines      | bsSplitOn crlf requestBuf
+: request@[_ _ _ headers]
+    < ocase | parseHeader lines
+        | respond400AndClose buf ss clientfd
+;| xtrace ["request" request]
+;
+: contentLenBS < ocase | tableLookup b#{Content-Length} headers
+                   | readRequest buf request NONE restBuf ss clientfd
+: contentLen < ocase | parseNat contentLenBS
+                 | respond400AndClose buf ss clientfd
+@ restSz | bsSz restBuf
+@ val | Compare restSz contentLen
+| Ifz val
+    @ !xbuf | XBufOp contentLen
+    @ !p  | XPtrOp xbuf
+    @ !v  | poke p restSz 0 restBuf
+    ^ ssModifyOpened ss (tableIns clientfd _)
+    | STCLIENT | HS_READING_BODY request contentLen restSz xbuf
+| If (Eq 1 val)
+    | readRequest buf request (SOME restBuf) b#{} ss clientfd
+; 2
+| Die "todo: deal when already started reading next headers"
+
+; > MapRef > ServerState > FD > Nat > > ServerState
+= (handleClientReadingBodyPollIn buf ss clientfd req contentLen off xbuf)
+; read up to the remaining size
+@ sz | Sub contentLen off
+@ ptr | Add XPtrOp-xbuf off
+@ !readByts | syscall | sysRead clientfd ptr sz
+;| xtrace ["sysRead" clientfd ptr sz "read" readByts]
+| Ifz readByts
+    | performClose ss clientfd
+@ newoff | Add off readByts
+| If | Eq contentLen newoff
+    | readRequest buf req (SOME xbuf) b#{} ss clientfd
+;
+| ssModifyOpened ss
+| tableIns clientfd
+| STCLIENT | HS_READING_BODY req contentLen newoff xbuf
+
+
+;  = (NatCase z p x)      | Case _&z (_ _ _)&z (_ _)&z z p x
+
+;  = (bitwise f x y)
+;  ^ _ 0 (max Sz-x Sz-y)
+;  ? (go acc rem)
+;  ^ NatCase acc _ rem
+;  & i (go _ i)^(If (f Test-i-x Test-i-y) Set-i-acc acc)
+
+= (bitwise f x y)
+@ m | max Bits-x Bits-y
+^ _ 0 0
+? (go !acc i)
+| If Eq-i-m acc
+@ l | If (Le i Bits-x) Test-i-x 0
+@ r | If (Le i Bits-y) Test-i-y 0
+| If (f l r)
+    | go Set-i-acc Inc-i
+| go acc Inc-i
+
+= (Disa x y) | bitwise Or  x y
+= (Cona x y) | bitwise And x y
+= (Mixa x y) | bitwise Xor x y
+
+=?= 6 | Disa 2 4
+
+; OK, so something is wrong in the implemenation of bitwise where x returns
+=?= 0 | Cona 1 16
+=?= 1 | Cona 1 1
+
+; > MapRef > ServerState > (FD, SocketType, Nat) > ServerState
+= (handlePollEvent buf ss [fd stype revent])
+| If | Cona revent pollHup
+    | ssModifyOpened ss | tableDel fd
+# simplecase stype (Die {invalid stype})
+- STLISTENING
+    | If | Cona revent pollIn
+        | handleListeningPollIn buf ss fd
+    | Die "unhandled: stlistening"
+- STCLIENT httpState
+    # simplecase httpState (Die {invalid hs type})
+    - HS_BUFFERING_HEADERS inBuffer
+        | If | Cona revent pollIn
+            | handleClientBufferingHeadersPollIn buf ss fd inBuffer
+        | Die "unhandled: stclient buffering"
+    - HS_READING_BODY req contentLen off xbuf
+        | If | Cona revent pollIn
+            | handleClientReadingBodyPollIn buf ss fd req contentLen off xbuf
+        | Die "unhandled: stclient body"
+    - HS_SENDING_RESPONSE keepAlive offset bars
+        | xtrace ["resuming" keepAlive offset]
+        | If | Cona revent pollOut
+            | handleClientSendingPollOut buf keepAlive offset bars ss fd
+        | Die "unhandled: stclient sending"
+
+; ------------------------------------------------------------------------
+
+; >   > userFun > persisted userFun
+= (commitForRestart runHttpServer requestFun)
+| Profile commitForRestart
+@ !sv | ##12 (runHttpServer requestFun)
+| Ix 0 sv
+
+; ------------------------------------------------------------------------
+
+= commaNewline | bs ["," newlineChar]
+
+= (mkConstantBuf str)
+@ sz | Bytes str
+@ !xbuf | XBufOp | Inc sz
+@ !p  | XPtrOp xbuf
+@ !v  | poke p sz 0 str
+p
+
+= (mkTraceX item@[time val])
+@ ty | Hd item
+@ ph
+    | Ifz ty b#{B}
+    | If (Eq 1 ty) b#{E}
+    | If (Eq 2 ty) b#{B}
+    | If (Eq 3 ty) b#{E}
+    | Die {Unknown trace tag}
+@ name
+    | If (Eq 2 ty) b#{GC}
+    | If (Eq 3 ty) b#{GC}
+    | bsFromNat
+    | If IsPin-val
+        | Name | Unpin val
+    | If IsLaw-val
+        | Name val
+    | Die [{weird name in mkTraceX} val]
+@ timestamp | bsFromNat | showNat | Div time 125
+@ extra
+    | If (Eq 2 ty)
+        | bsCat
+        ++ b#{, "args":}
+        ++ b#"{"
+        ++ b#{"old_heap_size": }
+        ++ bsFromNat | showNat val
+        ++ b#"}"
+    | If (Eq 3 ty)
+        | bsCat
+        ++ b#{, "args":}
+        ++ b#"{"
+        ++ b#{"new_heap_size": }
+        ++ bsFromNat | showNat val
+        ++ b#"}"
+    emptyBs
+| bsCat
+++ b"{"
+++ b#{"name": "}
+++ name
+++ b#{", "cat": "L", "ph": "}
+++ ph
+++ b#{", "pid": 1, "tid": 1, "ts": }
+++ timestamp
+++ extra
+++ b"}"
+
+; ------------------------------------------------------------------------
+
+= (any f r)
+| lany f | stream r
+
+; ------------------------------------------------------------------------
+
+= (runHttpServer requestFun args)
+;;; mmap(null, bufsize, 3, 16418, -1, 0);
+@ !m      | syscall | sysMmap 0 bufsize 3 16418 negativeOne 0
+| xtrace ["mmap" m]
+;;; socket(AF_INET, SOCK_STREAM, 0)
+@ !sockfd | syscall | sysSocket afInet sockStream 0
+| xtrace ["sockfd" sockfd]
+@ !opt    | setBinarySockOpt m sockfd solSocket soReuseAddr 1
+@ !bl     | bindToLocalhost m sockfd
+;;; listen(sockfd, 5)
+@ !s      | syscall | sysListen sockfd 5
+;| xtrace ["listen" sockfd]
+;;; open("trace.json", W)
+@ tjob    | mkConstantBuf "trace.json"
+@ !tj
+    | Ifz | any (Eq "--profile") args
+        0
+    @ !s  | xsetprofon 1
+    @ !tj | syscall | sysOpen tjob oWronlyCreatTrunc 420 ; 420 is o644
+    @ !w | xwrite tj "[ " 2 0
+    | xtrace ["profiling enabled on fd" tj]
+    tj
+;
+@ ss | SERVER_STATE (tableSing sockfd STLISTENING) 0 requestFun
+^ _ YES ss
+? (go first ss)
+@ !results | runPoll m ss
+@ !newss@[sockets dirty appFun]
+    ; for every item in results, run it through a handlePollEvent
+    ^ _ ss results
+    ? (dispatchEvents ss results)
+    : r rs < lcase results ss
+    @ !newss | handlePollEvent m ss r
+    | dispatchEvents newss rs
+| Ifz dirty
+    | go first newss
+; Handle request to persist new app.
+@ !newFun | commitForRestart runHttpServer appFun
+; Dump profiling information if enabled.
+@ !whenProf
+    | Ifz tj
+        0
+    @ !prof
+        | bsCat
+        | intersperse commaNewline
+        | map mkTraceX
+        | array | FetchProfiling 0
+    ;| xtrace ["prof" prof]
+    @ !writeComma
+        | If first 0
+        | xwrite tj commaNewline 2 0
+    | xwrite tj prof (bsSz prof) 0
+; Force a GC2 garbage collection
+@ !g | ##18 | 0
+| go NO | SERVER_STATE sockets 0 newFun

@@ -1,0 +1,5 @@
+#!/usr/bin/env -S awk -f
+
+/^\\begin{asm}/ { asm=1; next }
+/^\\end{asm}/   { asm=0; next }
+asm             { print }

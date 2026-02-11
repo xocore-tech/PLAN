@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -ex
+
+plunder save -Z --new-format boot.seed newboot
+
+make x/plan
+
+x/plan boot.seed < ./sire/newboot.sire

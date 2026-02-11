@@ -1,0 +1,70 @@
+cords
+
+; = (add x y)
+; |   ? (times f z x)
+;     | natcase z (times f (f z)) x
+; ##2 x y
+
+; = (natcase z p x)
+; | ##3 ((x _ & x) z) ((z _ _ _ & z) z) ((z _ _ & z) z) z p x
+
+3P
+0R
+	(1P 0 A 2 A 1 A E)
+	0R1A
+	A
+0R
+	(1P 0 A 4 A 1 A E)
+	0R1A
+	A
+0R
+	(1P 0 A 3 A 1 A E)
+        0R1A
+	A
+0R1A
+0R2A
+0R3A
+	1P "natcase" A 3 A  ;;  ? (natcase z p x)
+R _
+pin ?
+
+;; Test it with 9
+
+dup
+	"zero" A "pos" A 9 A E .
+
+;; Test it with 0
+
+dup
+	"zero" A "pos" A 0 A
+	eval .
+
+;;;;;;;; = (times f z x)
+;;;;;;;; | natcase z (times f (f z)) x
+
+;;;;;;;; = times
+;;;;;;;; (#0
+;;;;;;;;  (#1 "times" 3
+;;;;;;;;   (0 (0 (0 natcase 2) (0 (0 0 1) (0 1 2))) 3)
+
+0R2A
+0R(0 (0 0 A 1 A) A (0 1 A 2 A) A)A
+0R3A
+(1P "times" A 3 A) R
+_ pin _
+
+;;;;;;;; = (add x y)
+;;;;;;;; | times ##2 x y
+
+;;;;;;;; = add
+;;;;;;;; (#0 (#1 "add" 2
+;;;;;;;;      (0 (0 (0 times ##2) 1) 2)))
+
+0R(2P)A
+0R1A
+0R2A
+(1P "add" A 2 A) R
+pin
+
+9999 A 161 A
+_ eval .

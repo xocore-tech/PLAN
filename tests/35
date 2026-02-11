@@ -1,0 +1,14 @@
+cords
+
+"closures".
+$Sz F (0 0 A)     AF.
+$Sz F (0 1 A 2 A) AF.
+$Sz F ($Add 5 A)  AF.
+
+\
+
+"edgecases".
+$Sz F 0                    AF.
+$Sz F 999                  AF.
+$Sz F 99999999999999999999 AF.
+$Sz F 5P                   AF.

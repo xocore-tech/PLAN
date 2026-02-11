@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+(cat ../wisp/op.lisp; echo; cat /dev/stdin) | ./plan wisp.seed

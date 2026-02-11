@@ -1,0 +1,47 @@
+E(o:(f x)) = Ef; Ho(Af)
+E<>        = E<>
+Eo         = o
+
+A(f x)     = Af-1
+A{a m b}   = a
+A<{a m b}> = a
+A@         = 0
+A<i>       = 1
+
+Ho1 = o#Xoo; Eo
+Hoa = o
+
+I0(e x) = x
+In(e x) = I(n-1)e
+Inx     = 0
+
+Cp____<i>     = p i
+C_l___{a m b} = l a m b
+C__a__(x e)   = a x e
+C___z_0       = z
+C____m(o:@)   = m (o-1)
+
+N(x:@) = x
+N_     = 0
+
+Xe(<o:@> x) = Ex; Sox
+Xe(f x)     = Xef
+Xe{a m b}   = Baaebb
+Xe<{a m b}> = Baaebb
+
+S0(0 i)           = Ei; <i>
+S0(1 a m b)       = Ea; J(Na+1)mb
+S0(2 p l a z m o) = Eo; Cplazmo
+
+Jamb = Eb; Baa0bb; {a m b}
+
+Baneb(1 _ k) = Ek; Ba(n+1)(e <>)bk
+Banebx       = Laneb
+
+Line(1 v b) = Ev; Iie#Rnev; L(i+1)neb
+Linex       = Rnex
+
+Rne(b:@) | b<=n = I(n-b)e
+Rne(0 f x)      = Ef; Ex; (Rnef Rnex)
+Rne(0 x)        = Ex; x
+Rnex            = x

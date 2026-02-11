@@ -1,0 +1,2551 @@
+* Memory Layout: The runtime as a state Machine
+Every language runtime (and operating system) is a state machine with an
+ABI.
+
+This section contains a through exploration of how this state machine
+works, how it is represented in memory, and the ABI that code needs to
+adhere to in order to interact with the system.
+
+Let's begin at a very high level, discuss that loosely, and then we will
+zoom all the way into the very low level, and work our way out from
+there.
+** High Level Overview
+At a high level, the PLAN runtime keeps data in two memory regions.
+
+1. The executable itself, which contains the initial runtime system code
+   and all of data that has been persisted. Data that is in the process
+   of being committed to disk is also sometimes mapped to the end of
+   this region.
+
+   This is a 4 TB area that has been reserved with mmap(). The first
+   part of that is the .text section of the executable, which is mapped
+   RX and which includes all of the code+data from the runtime system,
+   as well as all of the data that has been snapshotted and all of the
+   code that has been generated for snapshotted functions.
+
+2. A single, huge malloc() heap. This contains global runtime system
+   data, pins, large nats, and per-thread evaluation data.
+
+   Every thread has a stack and a heap.
+
+There are a number of registers which are used for per-thread execution
+state:
+
+- r15: pointer to the top of the stack.
+
+- r14: pointer to the next free memory on the heap.
+
+A pointer to the end of the heap is stored in thread-local memory, and
+will need to be reloaded every time.
+
+When the runtime system wants a thread to pause itself, it will set this
+value to zero, which will trigger the GC path (which will detect this
+situation and yeield instead of actually doing a GC).
+
+These thread-local storage arrays are stored at the base (highest
+address) of the machine-code stack for the thread.
+** PLAN representation
+*** Process Layout
+- PLAN evaluation uses it's own stack, and a separate register is used
+  for the PLAN stack pointer (r15).
+
+- PLAN evaluation uses a two-space copying GC. The heap pointer is
+  stored in a register (r14), and the end of the heap is also stored in
+  a register (r13).
+
+  The heap allocation sequence is very cheap:
+
+  alloc_gc: call gc alloc: mov rax, r14 # alloc result is old hp. add
+  r14, 8 # bump hp cmp r14, r13 # check for overflow jge alloc_gc #
+  handle overflow case
+** Garbage Collection
+* Allocation Routines
+For all of these, keep in mind that this register scheme is used
+throughout the entire runtime system.
+
+#+begin_example
+r12 = heap_ptr
+r13 = heap_size
+r14 = heap_used
+r15 = stack_pointer
+#+end_example
+** rts_init
+This just initializes the registers that are used for the values-stack
+and the garbage-collected heap.
+** raw_alloc_binary
+This is an extremely simple allocation routine that just allocates a
+new, uninitialized heap node for binary data, and returns a pointer.
+
+Most of the allocation routines return a tagged heap reference. However,
+when we allocate natural numbers there is often a chance that the result
+will have a zero MSW, and we will need to shrink the result. Because of
+this, we just return a pointer and leave it up to the caller to create
+the tagged heap reference.
+
+Arguments:
+
+- rdi: word-size
+
+Returns:
+
+rax: pointer
+*** Implementation
+First, we get the result pointer, which will be the current end of the
+heap plus one word.
+
+Then, we consume another (size+1) heap words.
+
+If this exceeds the heap size, then we need to run GC. We use this cute
+trick where we jump into =raw_alloc_binary_gc()= which calls GC and then
+restarts the whole proces from the beginning.
+
+Finally, we fill in the heap header with the size. The tag for binary
+heap nodes is =00=, so we don't have to do anything to set that.
+** Allocating Big Nats
+Allocating natural numbers works differently from other allocation
+routines because natural number operations generally need a temporary
+work-space to use during calculation, and they don't know the final
+result, or even the size of the final result, until later.
+
+The protocol that is in place for this is to first reserve space of the
+appropriates size at the end of the heap with =reserve=.
+
+=reserve= takes the number of words that you will need to perform your
+computation, and then it uses the garbage collector to ensure that this
+much spaces is available at the end of the heap.
+
+It also zeros out the space.
+
+However, =reserve= does not actually allocate anything. It doesn't write
+a GC header, and it doesn't increase the size of the heap.
+
+And then, once you have finished your calculation and placed your data
+in this space, you call =claim= to convert that to a number.
+
+=claim= takes a size argument, which is the maximum potential size of
+the result.
+
+The first thing =claim= does is to drop trailing zero works for them the
+number. If the result it direct, it just returns it directly and leaves
+the heap unaltered.
+
+Otherwise, if the result MUST live on the heap, it writes a GC header,
+and then advances the =heap_next= register to point to the next
+available space.
+
+Here is the code:
+
+#+begin_example
+.reserve.gc:
+    call    gc
+reserve:
+    inc rdi                    # one extra for the GC header.
+    lea rcx, [r14 + rdi]       # compute heap space needed.
+    cmp rcx, r13
+    ja  .reserve.gc            # gc if not enough space.
+    mov rcx, rdi               # rcx = words to fill
+    lea rdi, [r12 + r14*8]     # dst = end of heap
+    xor rax, rax               # fil = 0
+    rep stosq                  # memset
+    lea rax, [r12 + r14*8 + 8] # pointer to after GC record
+    ret
+claim:
+    lea rsi, [r12 + r14*8 + 8] # end-of-heap pointer
+.claim.loop:
+    dec rdi                    # shrink until non-zero msw
+    mov rax, [rsi + rdi*8]
+    test    rdi, rdi
+    jz  .claim.u64             # n=0 means one word
+    test    rax, rax
+    jz  .claim.loop            # msw=0 means shrink
+.claim.indirect:
+    inc rdi                    # restore size
+    mov rsi, rdi               # compute bitsize
+    shl rsi, 6
+    lzcnt   r8, rax
+    sub rsi, r8                # rsi = bitsize
+    mov r8, 0xc0000000         # tag mask
+    or  rsi, r8                # tagged size
+    shl rsi, 32                # rsi = tag mask
+    mov [r12 + r14*8], rdi     # GC record = sz
+    lea rax, [r14 + 1]         # offset = hp+8
+    lea r14, [rax + rdi]       # claim the reserved heap space
+    or  rax, rsi               # result = tagged heap pointer
+    ret
+.claim.u64:
+    test    rax, rax
+    js  .claim.indirect      # high bit means not direct
+    ret                          # do nothing in direct case
+#+end_example
+*** reserve
+This reserves a certain number of words at the end of the heap and fills
+them with zeros, but it doesn't actually allocate them.
+
+This doesn't return anything, but the memory will always be available at
+the end of the loom (at =[r12 + r14*8]=).
+
+Note that the caller will also need to reserve space for the heap-header
+and fill that itself, this just reserves exactly the number of requested
+words.
+*** claim
+clobbers: rsi, rdi, r8, rax
+
+claim (u64 n) { lea ptr, [loom + loom_next*8 + 8] loop: n--; msw = [ptr
++ n*8] if (n >> 63) return 0; # empty (index underflow) if (!n) goto
+u64; if (!msw) goto loop; indirect: inc n mov qword [ptr - 8], n mov
+rax, u64: if (!bt(msw,63)) goto direct; mov qword [ptr - 8], 1 inc r14
+rax = tagnat(r14, 1); inc r14 ret direct: return msw;
+*** kalloc
+Arguments: rdi = word size
+
+Returns: rax = raw pointer
+
+Clobbers: rax, rcx, rdi
+
+Register Mappings:
+
+- rax: a pointer to the first word of the number.
+- rcx: the number of words to fill with =rep stosq=
+- rdi: the starting address to fill with =rep stosq=
+- rax: the value to fill with during =rep stosq=.
+
+The implementation is pretty simple: we reserve some heap space, calling
+into GC first if necessary, then we write the size to the heap header,
+zero-out the memory, and return a raw pointer.
+
+First we load a pointer into the end of the heap into =rax=, then we
+attempt to grow the heap. If there isn't space for this, we call into GC
+and repeat the whole process from the beginning.
+
+(TODO: maybe we should pass the actual end-of-heap as an argument to GC?
+This should let the GC know how much space we were trying to allocate,
+which might be important for handling edge-cases, like where we are
+trying to allocate something that is bigger than the entire heap).
+
+Once we have space, we write the heap header (which is just the size,
+sice the type tag is zero for nats).
+
+Then, we save =rax=, since we will need to return that value.
+
+Next, we zero out the memory region using =rep stosq= (which requires a
+destination-pointer into rdi, a count in rcx, and a word to write in
+=rax=).
+
+And finally, we restore rax and return it.
+*** shrink
+This finalizes the big-nat allocation process that was begun with
+=kalloc=.
+
+Arguments: rdi = buffer, rsi = buffer size (in words)
+
+Results: rax = result value (direct atom or tagged pointer)
+
+Clobbers: rdi, rsi, rax, r8
+
+Register Mappings:
+
+- rsi: word size, bit size
+
+- rax: most significant word, final result.
+
+High-level implementation overview:
+
+This repeatedly shrinks the size of the nat buffer until the MSW is
+zero.
+
+If the result fits in a single direct atom, then a direct atom is
+returns.
+
+Once we have computed the new size, we also shrink the heap to match.
+
+At a high level, this computes the actual size of a natural number,
+shrinks the heap, updates the size in the GC record the GC record,
+
+this uses a loop to look at the MSW and shrink the word-count until that
+is non-zero. It also handles the case where
+
+shrinks the buffer
+
+Given a buffer (rdi) and buffer size (rdi) that describe a natural
+number, figure out how many bits the number actually is, returning
+either a direct nat if it will fit, or an indirect pointer tagged nat
+with the actual bitsize of the natural number.
+
+TODO: ideally, this should /unallocate/ the unused words by shrinking
+the heap pointer.
+
+#+begin_example
+  If we return a direct atom, we should "unallocate" the entire heap
+  node, and if we shrink the size by a word, we should "unallocate"
+  that many words.
+
+  This only works if the thing being shrunk was the last allocation
+  on the heap, however, and `slow_div` performs three allocations.
+
+  Can this be changed somehow?  Maybe we can preallocte one large
+  buffer, shrink the heap to throw away the temporaries, and then call
+  `shrink` on the final one (the actual number)?
+#+end_example
+*** Implementation
+First, we decrement the length to get the index of the last word.
+
+If this index is zero, we have only one word.
+
+Otherwise, we fetch the last word (most significant word). If that's
+zero, then the buffer is too big, and we repeat the whole process, with
+a decremented length.
+
+Eventually, we find a non-zero msw, and then we need to shrink the
+buffer.
+
+#+begin_example
+shrink:
+.return_shrunk_u64_loop:
+    dec rsi                      # i--
+    test    rsi, rsi
+    js  .return_shrunk_msw       # if (i < 0) goto return_shrunk_msw:
+    mov rax, [rdi + rsi*8]
+    test    rax, rax
+    je  .return_shrunk_u64_loop  # if (buf[i] == 0) continue;
+    bsr rax, rax
+    inc eax
+    cdqe                             # rax = 64 - __builtin_clzl(word)
+    sal rsi, 6                   # rsi = 64 * i
+    add rsi, rax                 # rsi += rax
+    cmp rsi, 63
+    jg  .return_shrunk_buf       # if (rsi < 64) return *rdi
+.return_shrunk_msw:
+    mov rax, [rdi]
+    ret
+.return_shrunk_buf:
+    # If the length of this word in bits is greater than 30 bits, we need to
+    # handle this differently, where we write the true u64 length of the buffer
+    # in bytes to the first word. For now, we're just going to crash instead.
+    mov rax, 0b111111111111111111111111111111
+    cmp rsi, rax
+    jae .return_complicated_buffer
+    #
+    # (u64)(r15 - bufptr) | (n << 32) | 0xc000000000000000ULL;
+    mov rax, rsi
+    shl rax, 32
+    #
+    sub rdi, r12
+    shr rdi, 3          # words = (buf - heap_top) / 8
+    #
+    or  rax, rdi
+    bts rax, 63
+    bts rax, 62
+    ret
+.return_complicated_buffer:
+    # Eventually, we must deal when n > 2^32 - 1, but for simplicity don't for
+    # now.
+    ud2
+#+end_example
+** alloc_u128
+Allocate an two-word indirect bignat and set the tag-bits on the
+pointer. The upper word (rdx) must be non-zero.
+
+- Write two words into the heap
+- Calculate bitsz (128 - clz(rdx))
+- Calculate pointer mask
+- (mask | hp)
+- hp += 16
+
+This does this in a somewhat clever way. Instead of doing (128 -
+clz(rdx)), we do ((0x8080 - clz(rdx)) << 48) which calculates the same
+thing in fewer steps.
+
+Arguments:
+
+- rax
+
+- rdx
+
+Returns:
+
+- rax
+
+Clobbers:
+
+- rsi
+*** Implementation
+#+begin_example
+alloc_u128_gc:
+    call    gc
+alloc_u128:
+    mov rsi, r14
+    add r14, 2                          # bump hp
+    cmp r14, r13                        # check overflow
+    ja  alloc_u128_gc
+    mov [r12 + rsi*8], rax
+    mov [r12 + rsi*8 + 8], rdx
+    lzcnt   rdx, rdx
+    mov rsi, 0xc0000080      # indirect nat marker, 128 bits
+    sub rsi, rdx             # subtract number of leading zeros
+    shl rsi, 32
+    mov rax, r14
+    sub rax, 2
+    or  rax, rsi             # add raw pointer
+    ret
+#+end_example
+** alloc_thunk()
+Argument: r8 (the total thunk size, including executioner)
+
+Returns: rax (tagged heap reference)
+
+Clobbers: r8, rax
+
+Takes the size in r8 (in order to minimize the clobbering footprint, but
+maybe this should be re-evaluated).
+*** Implementation
+This just allocates the space on the heap, GCs if necessary, fills the
+heap record, tags the result as a thunk, and returns the tagged
+reference.
+** alloc_pin
+This is given the evaluation arity of the pin (in RDI), and it just
+allocates a heap object for a pin uninitialized (and returns a tagged
+heap-reference in RAX).
+
+The reason this takes the evaluation arity as an argument is just
+because that information is stored in the pointer tag, and so we need it
+in order to construct a tagged pointer.
+
+Clobbers: r8, rax, rdi
+*** Implementation
+Pins use four words, so we allocate 5.
+
+THen we write a heap-node header to the first word, which is always
+=0x4000000000000004= (unmoved, gctype = PIN(0b10), size=4).
+
+Then we tagg the pointer with the type (PIN = 0x9) and the evaluation
+arity (starting at bit 32).
+
+We return this pinned heap reference.
+** alloc_array
+- args: rdi(tag), rsi(sz)
+- clobbers: r8, r9
+- returns: rax(ref)
+
+Note that the argument registers are left unmodified.
+
+Pseudocode:
+
+#+begin_example
+alloc_array(rdi:tag, rsi:sz) -> (rax:ref)
+    ref = heap_used;                // next available heap space
+    heap_used += (sz + 2);          // number of elements + tag and header
+    if (heap_used > heap_size)
+      goto allocat_array_gc;        // handle full heap
+    heap[ref] = sz | (1 << 61)      // write header word
+    ref++                           // references point to data after header.
+    ref |= (sz << 32)
+    ref |= 0xb800000000000000
+    ref |= (min(tag,255) << 51)
+    return ref
+#+end_example
+
+Implementation:
+
+#+begin_example
+alloc_array_gc:
+    call    gc
+alloc_array:
+    mov rax, r14
+    add r14, rsi
+    add r14, 2
+    cmp r14, r13
+    ja  alloc_array_gc
+    mov     r8, rsi
+    bts     r8, 61
+    mov     [r12 + rax*8], r8
+    inc rax
+    mov     r8, 0xb800000000000000
+    or  rax, r8
+    mov r8, rsi
+    shl     r8, 32
+    or  rax, r8
+    mov r8, 255
+    mov r9, rdi
+    cmp r9, r8
+    cmovg   r9, r8
+    shl     r9, 51
+    or      rax, r9
+    ret
+#+end_example
+** heap_ptr_to_tagged_offset
+This just converts from a heap pointer to a heap index.
+** tagged_to_heap_ptr
+This converts from a tagged heap index into a pointer (stripping the
+tag).
+
+Note that =mov(edi,edi)= zeros the high bits of rdi because this
+operation has an implicit zero extension.
+* Heap Layout
+All of the data that the runtime system manages lives within a single 64
+GB region
+
+This region is allocated up-front using mmap with the MAP_NORESERVE
+flag. This flag makes it so that only the pages that are actually used
+are mapped to real memory. This is a simple, brute-force approach that
+removes the need to manually grow and shrink the heap.
+
+- The first half of this memory region is the heap, and the second half
+  is the stack.
+
+- Of the heap, the first half is used for frozen pins (snapshots), and
+  the second half is used for the evaluation heap.
+
+- The evaluation heap is also split in half, since we use a two-space
+  copying GC.
+
+Altogether, the memory layout looks like this:
+
+#+begin_example
+------------------------------------------------------------
+
+Pin Heap (16GB)
+
+------------------------------
+Heap1 (8GB)
+---------------
+Heap2 (8GB)
+------------------------------------------------------------
+
+
+
+
+
+
+Stack (32gb)
+------------------------------------------------------------
+#+end_example
+
+The end result is that the maximum amount of pinned data is 16 GB, and
+the maximum size of the evaluation heap is 8GB.
+
+These limits are pretty deeply baked in, since heap-references are a
+32-bit index into this structure (treating it as an array of 64-bit
+words). This pointer encoding hard-caps the heap region to 32 GB, and
+all heap data must live within that region, including the pinned region.
+** Heap-Node Records
+Every heap node is preceded by a 64-bit record that contains it's size
+and type. This record makes it possible to walk the heap, which is
+needed for Cheney's algorithm, and for heap introspection and validation
+during debugging.
+
+The format for these headers is the following:
+
+#+begin_example
+0sssssssssssssssssssssssssssssssssssssssssssssssssssssss00000ttt
+#+end_example
+
+Where =ttt= is the type, and =sss..= is a size field. The type takes on
+one of the following values:
+
+#+begin_example
+0b000 - 0x0 - Nat
+0b001 - 0x1 - Pin
+0b010 - 0x2 - Law
+0b011 - 0x3 - Clz (nf)
+0b100 - 0x4 - Clz (whnf)
+0b101 - 0x5 - Thunk
+0b110 - 0x6 - Megapin
+#+end_example
+
+The size field is always the bit-size of the result. For natural
+numbers, this is exactly what you would expect.
+
+For everything else, this is just the word-size times 64. If you know
+the input is not a number, you can get the word-size by shifting the
+header right by 14.
+
+If it /might/ be a number, you can get the word size by shifting right
+by 8, adding 63, and then shifting right by 6.
+
+The size field has a different meaning in different cases.
+
+If the node is a Nat, then the size is the bit-size of the number.
+Otherwise, it indicates the total number of words in the node (not
+including the header record).
+
+In order to calculate the node size from the bit size, just divide
+rounding upwards. nodesz = (bitsz+63)>>6
+
+Some things to note:
+
+- The type tag fills a whole byte, so it can be addressed directly, for
+  both reading and writing.
+
+  This makes it possible to mark a closure as having been normalized
+  without doing any bit-manipulation.
+
+  Also, if we have a heap-node-record in a register, we can access the
+  low byte directly. For example, if the record is in rax, the type is
+  in al.
+
+- We can check if a node is in normal form by examining the 3rd bit (bit
+  2), This bit is always set if the node is lazy and always clear if the
+  node is in normal form.
+
+  This is an important property during GC because we rely on the
+  invariant that normalized data never points to mutable data in order
+  to simplify generational garbage collection.
+
+- The size is in the upper 58 bits, and it can be calculated by
+  right-shifting by 8 bits.
+
+  - To mark a closure as normalized, you write =3= as the first byte in
+    the record. On this architecture, the least significant byte is
+    first, so this can be implemented like so:
+
+    #+begin_example
+    PTR(ref)[-1] = 3
+    #+end_example
+
+So, the heap-node of the natural number (2^64 - 1) would be
+
+#+begin_example
+0000000000000000000000000000000000000000000000000000000001000000
+1111111111111111111111111111111111111111111111111111111111111111
+
+0b000 - Nat
+0b001 - Pin
+0b010 - Law
+0b011 - Clz (nf)
+0b100 - Clz (whnf)
+0b101 - Thunk
+#+end_example
+
+So, the heap-node of an array of size 3, where every element is (2^63-1)
+would be:
+
+#+begin_example
+0000010000000000000000000000000000000000000000000000000000000011
+0111111111111111111111111111111111111111111111111111111111111111
+0111111111111111111111111111111111111111111111111111111111111111
+0111111111111111111111111111111111111111111111111111111111111111
+#+end_example
+
+After the above array has been forced, it's memory shape would be:
+
+#+begin_example
+0000001100000000000000000000000000000000000000000000000000000011
+0111111111111111111111111111111111111111111111111111111111111111
+0111111111111111111111111111111111111111111111111111111111111111
+0111111111111111111111111111111111111111111111111111111111111111
+#+end_example
+
+If the above object has been moved to a new location, then it's value
+would be.
+
+#+begin_example
+{type=ARR(10111, tag=8, sz=3)}
+----------------------------------------------------------------
+----------------------------------------------------------------
+----------------------------------------------------------------
+----------------------------------------------------------------
+#+end_example
+
+Once an array has been marked as moved, we lose the ability to traverse
+the heap because we overwrite the size information. But, that's okay
+because these marks are only set on the old heap during GC, and we only
+ever need to traverse the live heap.
+** Taking Snapshots
+You can take snapshots by writing the frozen-pins region to a file. In
+order to take a subsequent snapshot, just append all new data to said
+file.
+
+You can restore from a snapshot just by reading the snapshot file into
+memory at the beginning of the process. The final pin in the snapshot
+file should be the execution state, just walk the heap to find that, and
+then push it to the stack.
+** Law Allocation Boxes
+A law is always 6 words:
+
+- The law name (a NAT).
+- The law arity (a NAT).
+- The law body (any PLAN value, always in normal form)
+- A function pointer to code that is used when this is called.
+- The evaluation arity (See [EARGS] note).
+- Some arbitrary data left by the compiler, which can be used by the
+  evaluation code.
+** Pin Allocation Boxes
+Here's the data that lives inside of a pin:
+
+1. =[p]=: A reference to the pin item.
+
+2. =[p+8]=: A cryptographic hash of the pin.
+
+3. =[p+16]=: An array of subpins.
+
+4. =[p+24]=: Code pointer.
+
+5. =[p+32]=: The evaluation arity (See [EARGS] note).
+
+6. =[p+40]=: Some arbitrary data left by the compiler, which can be used by the evaluation
+   function.
+
+The pin metadata (hash and subpins) are always forced before being moved
+to the pins heap.
+
+If the pin lives on the GC-heap, it's heap-node header will always have
+a size of 4, but if it lives on the pins heap, it's size will also
+include all of the data within the pin, which will always be laid out
+directly after the pin itself.
+
+This makes it possible to traverse all of the pins on the pins heap
+without needing to walk the full set of objects.
+** Heap Routines
+*** =heap_new()=
+This just a wrapper for the mmap syscall, basically.  It takes one argument,
+which is the heap size, in bytes.
+* Calculating the Arity of a Value
+PLAN has a formal concept of an arity, and we need code to calculate
+that. But in addition to that, we also need to be able to calculate the
+related, internal concept of =eval_arity=.
+
+During execution, we don't work with the formal arities, since they have
+a could of annoying properties:
+
+- Numbers have zero arity, which effectively works as an /infinite/
+  arity within the rules of the spec. Calling a number always creates a
+  closure.
+
+- Law arities are explicit, and thus can be an number at all.
+
+Instead of writing the code for dealing with these edge cases, we use a
+hacky solution:
+
+Anything with an extremely large (or infinite arity) is clamped to
+=(2**24 - 1)=268435455=, and we instead just rely on the fact that no
+function will ever be given a quarter billion arguments.
+
+This specific number is chosen because it fits within the pointer tag of
+laws and pins, which makes it possible to decide if a call is saturated
+just by looking at the pointer.
+** get_eval_arity()
+Arguments:
+
+- rdi: A heap-reference to PLAN value.
+
+Returns:
+
+- rax: The =eval_arity= of the input argument.
+
+Clobbers
+
+- Non-closure input: rax
+
+- Closure input: rdi, rax, rcx
+
+This computes the evaluation arity of a PLAN value.
+
+First, if this is a number, then we return the maximum possible arity
+(because numbers have infinite arity).
+
+Next, if we have an array, then we jump to =.closure_arity=.
+
+Otherwise, we have a pin, a law, or an APP node. All of these have their
+=eval_arity()= cached in their pointer tag, so we can just extract that.
+
+Note that APP nodes are thunks, so they always have an =eval_arity()=
+of 0. APP references contain all zeros in the bits where arity
+information is stored, so the same process works for APPs, PINs, and
+LAWs.
+
+Finally, we have to handle the closure case. The arity of a closure is
+the arity of it's head minus the number of arguments in the closure.
+
+So, we compute the size, and then call =get_eval_arity()= to get the the
+number of arguments in the closure, and then we do the subtraction.
+
+Note that we store the size in =rcx=, and we rely on the fact that
+=get_eval_arity()= does not clobber =rcx=.
+
+This is only true because the head of a closure is always a nat, pin, or
+law. Otherwise this would be a recursive function and the nested closure
+case would clobber =rcx=.
+** get_pinitem_eval_arity()
+When constructing a pin, we need to calculate which =eval_arity= should
+be stored in the tag. We can calculate this by examining the item being
+pinned.
+
+Before we jump into the logic, let's review the rules:
+
+- A pinned number is a primop.
+
+- Any other pinned value has the same arity as it's item.
+
+Arguments:
+
+- rdi: A heap-reference to the item about to be pinned.
+
+Returns:
+
+- rax: the =eval_arity= of the pin.
+
+Clobbers:
+
+- rdi, rax, rcx
+
+First, we check if our argument is a number, if it isn't then we just
+immediately tail-call into =get_eval_arity()=.
+
+If we have a number, then this is a primop, and we need to determine
+it's arity.
+
+To do this, we just clamp the number to a maximum value of 4 and then
+lookup in a table.
+
+Note that indirect natural numbers can still be clamped in the same way.
+Since their high bit is set, they will always be greater than 3.
+* Comparing Nats
+- If both direct, compare.
+- If only one indirect, that one is smaller
+- If both indirect, compare bitsizes.
+- If bitsizes are different, the bigger bitsize is bigger.
+- If bitsizes are the same, then compare the word sizes.
+- If the wordsizes are different, the smaller is smaller.
+- If the wordsizes are the same, we compare the words in a loop,
+- Starting from the end.
+* Comparing Closures
+First, we compare the sizes. Longer arrays are always larger.
+
+If the closure has been normalized, we compare using {Comparing Strict
+Arrays}, otherwise we compare using {Comparing Lazy Arrays}.
+* Comparing Pins and Laws
+We treat pins as strict arrays of length 1, and laws as strict arrays of
+length 3.
+* Comparing Lazy Arrays
+Iterate through both (equal-length) arrays, pushing each index to the
+stack, and running lazy comparison on each.
+* Notes
+** Note about =bignatcmp=
+#+begin_example
+if nonequal:
+    nat < pin < law < app
+if nat:
+    plan_cmpnat
+#+end_example
+** Note about =cmprefs=
+First, we handle the nat case, since nats use a different number of
+pointer arguments.
+
+The remaining types all have the same bit-shape for their tags, so we
+can simplify the process by just checking if they are equal or not.
+
+If they are /NOT EQUAL/, then we need to figure out which type is
+bigger.
+
+It's evaluated, so type is always 0, 1, or 2 (never 3=THUNK), if the
+types are different, then we only need to check:
+
+- If x is a pin, x is smaller (pin < notpin).
+- If y is a pin, y is smaller (notpin > pin).
+- If x is a law, then x is smaller (law < closure).
+- Otherwise x is a closure, and y is a law, so x is bigger.
+
+If the /ARE EQUAL/, then they are either both pins, both laws, or both
+closures.
+
+All of these are laid out in memory as arrays, so we will use the same
+code for all of them, except that pins and laws have extra meta-data at
+the end, so we truncate the sizes in order to only look at the relevant
+data (pin item. Law name, arity, and body).
+** The =eval()= Routine
+=eval= evaluates a thunk into WHNF, and then updates the thunk to
+remember the result.
+
+The data model within this runtime system makes a distinction between a
+closure (an ARR node) and a thunk (an APP node), so APP nodes are always
+replaced, even if the function at the head is not given enough
+arguments.
+
+Here are some concrete examples;
+
+#+begin_example
+add             => add
+(add 2)         => add[2]
+((add 2) 3)     => 5
+(((add 2) 3) 4) => (5 4) => 5[4]
+#+end_example
+
+Basically the process is that we walk left until we find something
+besides an APP node, and then we execute that against it's arguments,
+and then we repeat this process until all of the arguments are consumed.
+
+In addition to that, we also have to deal with /thunk replacement/.
+Whenever we perform a substitution, we also write the result into the
+thunk. Also, whenever we encounter a thunk that has already been
+evaluated, we use the result as the head.
+*** Implementation
+The first thing we do is confirm that the input is an APP node. If it
+isn't an APP node then there is no work to do and we return immediately.
+
+Then, we begin our decent.
+
+We will keep track of how deeply we have decended, so we begin by
+initializing the depth to zero.
+*** The Unwind Loop
+At each step of the decent, we check if the current node is an APP node.
+
+If it is /not/ then we have found the head, and we exit the loop.
+
+Next, we fetch the head of the app node and examine it. If the
+head-pointer is all one-bits, this indicates that the APP node has been
+replaced, and that the result value lives in the tail.
+
+If an APP node is a resolved thunk, it's actual value will be in it's
+tail. We replace the app node with it's tail and we reenter the loop.
+
+(Note that this function does /not/ enforce the above invariant, so who
+does? Do we need a second call to eval() in every operation that can
+return a thunk? Does that consume an execcise amount of stack? Is it
+possible to keep that flat instead? TODO: go through this with pin and
+paper and figure out the answer).
+
+Otherwise, we push to the head to the stack, increment the depth and
+repeat the loop.
+
+At the end of the loop, the stack will contain each of the app nodes in
+the sequence. If the input was =(add 4 5)=, then the stack will contain.
+
+#+begin_example
+add
+(add 4)
+((add 4) 5)
+#+end_example
+*** The No-Args Case
+Once we finish unwinding, we first check to see if there are any
+arguments at all.
+
+One way that this situation can arise is when we evaluate an APP node
+that has already been replaced. It's an APP node and therefore a thunk,
+but unwind immediately finds the head, with no arguments.
+
+But, as you will see later, we do this entire process in a loop, since
+we need to handle the case where a function is given more arguments than
+it requires.
+
+And so the more common case of there being no arguments is that
+evaluation has finished. eval() actually always returns through this
+code path.
+*** Setting up the Stack for Substitution
+Now that we have a function and arguments, we want to run that function
+against the arguments!
+
+But our stack is not in the right shape for that, so we need to
+reorganize it first.
+
+Let's say that we have the input =(add 1 2 3)=. After unwinding, the
+stack will be in this state:
+
+#+begin_example
+add
+(add 1)
+(add 1 2)
+(add 1 2 3)
+#+end_example
+
+Obviously, we need to replace the last two APPs with their tails.
+
+But, doing that would drop =(add 1 2)= off of the stack, and we need to
+hold on to that, because we need to mutate that so that it holds the
+result. (This is how lazy evaluation works, if we didn't do this, then
+we would repeatedly re-evaluated the same things).
+
+So, the stack state that we actually want is the following:
+
+#+begin_example
+add
+1
+2
+(add 1 2)
+(add 1 2 3)
+#+end_example
+
+But, exactly how many stack slots should we re-arrange in this way?
+
+To answer that, we need to look at the =eval_arity= see [arity.md] of
+the head, and the total number of arguments. The answer is whichever one
+is smaller of the two.
+
+Next, we do the actual reorganization.
+
+We start by duplicating the function to grow the stack by one,
+initializing the loop index to one, and then entering the loop.
+*** The Reorganization loop.
+Basically, this just replaces a certain number of stack slots with the
+tail of the following stack slot.
+
+Once we have done that, our stack is in the desired state:
+
+#+begin_example
+add
+1
+2
+(add 1 2)
+(add 1 2 3)
+#+end_example
+*** Unpacking Closures
+But what if the function is a closure? Let's say we are in this state,
+for example:
+
+#+begin_example
+add[1]
+2
+(add[1] 2)
+(add[1] 2 3)
+#+end_example
+
+Before we can run =add=, we need to get these closure arguments onto the
+stack as well.
+
+But this is simple, drop the closure from the stack, and then push
+everything in it in reverse order. This will get us back to the desired
+state:
+
+#+begin_example
+add
+1
+2
+(add[1] 2)
+(add[1] 2 3)
+#+end_example
+
+Also, we need to add the closure arguments to our counts. This increases
+the arity of the function, the unwind depth, and the number of arguments
+that will be consumed by substitution.
+*** Executing the Head
+When executing the head, the first thing we need to do is to check if
+there are enough arguments or not.
+
+If there are too few, we just construct a closure and skip the rest of
+the execution logic.
+
+If we do have enough arguments, we just need to run the
+*** [cached]
+If (~head == 0), then the head is all ones, which is a flag that
+indicates that this thunk has already been evaluated, and the result is
+stored in the tail.
+
+APPs never evaluate to apps, so whenever we find such a cached node, we
+know that we have finished unwinding.
+
+So, in this case, we replace the top of the stack with this result, and
+then we continue forward with evaluation.
+*** [closure_push]
+If we find a closure during unwind, then we pop it off the stack, and
+then push all of the arguments and finally the closure function.
+*** [oversaturation]
+If exactly the right number of arguments were given, then we are almost
+done. function execution will do the thunk replacement, and the replaced
+thunk will be at the top of the stack.
+
+But if we were given /more/ arguments than we need, then they are still
+sitting on the stack, waiting to be processed.
+
+Either way, we decrement =args= by the number of arguments that were
+consumed by evaluation, and re-enter the loop.
+
+If the call was oversaturated, this will perform further evaluation. If
+it was perfectly saturated, then this will unwrap the replaced thunk and
+return that.
+*** [reorg]
+This sets up the stack for evaluation, it's a little bit confusing, so
+I'll try to explain in depth here.
+
+When we traverse a series of APP nodes in unwind, we push the head, each
+time. For example, let's say that you start with this input:
+
+#+begin_example
+(add 1 2 3)
+#+end_example
+
+After the unwinding process, the stack will look like this:
+
+#+begin_example
+add
+(add 1)
+(add 1 2)
+(add 1 2 3)
+#+end_example
+
+We need to rearrange the stack so that it contains the function and it's
+arguments (add, 1, and 2). But we also need to keep (add 1 2) on the
+stack, because we want to mutate that to store the cached result.
+
+There might be some other code that has a reference to this, and we
+don't want them to have to do the add again, so we mutate the thing into
+it's value. This is how lazy evaluation works.
+
+And, so we want to reorganize that into this:
+
+#+begin_example
+add
+1
+2
+(add 1 2)
+(add 1 2 3)
+#+end_example
+
+Note that this results in the stack growing by one element.
+
+* apply_args()
+This goes here because it's used by all of the =x_unknown*=
+executioners. It evaluates the head until we have an actual function,
+and then it applies it to them.
+
+This is slightly involved because we can have too few args (in which
+case we construct a closure), exactly enough args (in which case we tail
+call into the appropriate operation), or too many args (in which case we
+apply the operation and then repeat the whole process).
+
+* Law Analysis and Execution
+The bootstrapping runtime implements law evaluation in the most native
+way imaginable.
+
+It does zero optimization, it just literally expands a law into a graph
+of APP nodes, and then it lets the evaluator sort through it.
+
+For example, if you have a function:
+
+#+begin_example
+(Lth x y = Eqz (Cmp x y))
+#+end_example
+
+And you run =(Lth 3 4)=, it will literally return the corresponding
+thunk graph:
+
+#+begin_example
+(Eqz ((Cmp 3) 4))
+#+end_example
+
+Keep in mind that this /is in fact/ a graph, not a tree, because we have
+letrec. For example, this function:
+
+#+begin_example
+(repeat x = r@(0 x r)@r)
+#+end_example
+
+If called as =(repeat 5)=, will return the graph
+
+#+begin_example
+[0]: ((0 5 [0]))
+#+end_example
+
+Which directly contains a cycle.
+
+So, laws are treated literally as template expansion, relying entirely
+on the graph reduction engine for all evaluation. This is highly
+inefficient, but very simple.
+* Law Body Expansion
+*** Notes on Register Allocation
+- =plan_thunk= and recursion are the only calls.
+
+- What does =plan_thunk= clobber?
+
+  #+begin_example
+  rax, rcx, rdi, rsi, r8, r9
+  #+end_example
+
+- What does it /not/ clobber?
+
+  #+begin_example
+  rdx, r10, r11, rbp, rbx
+  #+end_example
+
+- Okay, let's keep our long-lived state in there.
+
+  #+begin_example
+  maxref = r10
+  envptr = r11
+  depth  = 0
+  args   = rdx
+  exp    = rbp
+  #+end_example
+
+- RBP and RBX are callee-saved, so we will need to save them before
+  entering the recursion.
+
+- Args is clobbered by expo itself, so we need to save that before each
+  recursive call.
+*** TODOs
+Could this be written without recursion, maybe by using some combination
+of =depth= and =args= to determine which path to take?
+* Jet Matching
+When pins are created, they are tagged with an enum which says how they
+should be executed.
+
+Instead of executing the logic for this every time, we do it once and
+record the result. This saves a lot of work during evaluation because
+the process is a bit complex.
+
+Here is a full list of the possible execution paths a pin can take:
+
+- If the pinned item is a special law, we run the code for that.
+
+- If the pinned item is a normal law, we run substitution.
+
+- If the pinned item is a nat, we run a primop (or crash).
+
+- Otherwise we crash.
+
+Here is a list of all of the possible evaluation paths:
+
+0. [@0] MKPIN (##0)
+1. MKLAW (##1)
+2. INC (##2)
+3. CASE (##3)
+4. CRASH (anything else)
+5. JUDGE (law eval)
+6. DEC (Dec jet)
+7. ADD (Add jet)
+8. SUB (Sub jet)
+9. MUL (Mul jet)
+10. DIV (Div jet)
+11. MOD (Mod jet)
+12. CMP (Cmp jet)
+13. TRACE (Trace jet)
+** Determining the Pin Evaluation Path
+If the item is a law, then we do jet matching (see below).
+
+If the item is 0, 1, 2, or 3, then we return the item as our result.
+
+Otherwise, we return 4=CRASH, since everything else is invalid.
+** Jet Matching
+If the pinned item is a law, then we need to check if it's a jet or not.
+
+This implementation uses an unprincipled approach to jet matching:
+instead of computing the cryptographic hash and caching the result, we
+just assume that anything with the right name and arity jet matches.
+
+To implement this, we just to a linear scan over a table of jet names to
+see if it matches one of the jet names.
+
+If we find a match, we do a lookup in another table to see if that
+matches too. If we have a match, we can add 6 to get the appropriate
+enum key.
+
+If we don't find a match, then we return 5=JUDGE telling the evalutor to
+do law substitution.
+** Implementing this in Assembly
+Arguments:
+
+- rdi: item being pinned.
+
+Results:
+
+- rax: the enum value
+
+Clobbers:
+
+- rax, rdi, r8, r9, r10
+
+First of all, if the argument is less than 4, we return it.
+
+Second, we check whether the argument is a law. A law can be identified
+by it having the bit pattern =0xa= as the high four bits.
+
+If the item is neither a law, nor a primop key, then the result is
+4=CRASH, so we return that.
+
+Now, we know that we have a law, so we fetch the name and arity from the
+heap.
+
+Next, we do an infinite loop of the =.jet_match_names= array, and check
+the jet name to see if it matches any of these. If it doesn't match,
+then we return 5=JUDGE (normal law evaluation).
+
+If it /does/ match, then we still need to check the arity. Fortunately,
+we can just use the same index to lookup the correct arity in the
+=.jet_match_arities= table.
+
+If the arity does not match, then we return 5=JUDGE (normal law
+evaluation).
+
+Otherwise, we add 6 to the matched index to get the appropriate jet
+match enum (skipping over the 4 primops, crash, and judge).
+* Operations on Natural Numbers
+** direct2
+The =direct2= macro reads two items from the stack, storing them in rdi
+and rsi. If either are indirect, jumps to the given label.
+** Left-Shift
+Copy words from one buffer to another left-shifted by a "small" number
+of bits (less than 2^63).
+
+The output buffer must be big enough to store all of the resulting bits,
+word-aligned.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input size (in words)
+- rcx: left-shift (in bits)
+
+Clobbers:
+
+- r8: loop index
+- r9: carry word
+- r10: current output word
+- r11: current input word
+- r12: left-shift cache (parameter to shl/shr is always rcx)
+
+Saves:
+
+- rbx: right-shift cache (parameter to shl/shr is always rcx)
+*** Right-Shift
+Copy words from one buffer to another right-shifted by a direct number
+of bits (less than 2^63).
+
+The output buffer must be big enough to store all of the resulting bits,
+word-aligned.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input size (in words)
+- rcx: left-shift (in bits)
+
+Clobbers:
+
+- r8: word_shift, loop index
+- r9: input temporary
+- r10: previous loop index
+- r11: next input
+
+Saves:
+
+- rbx: 64 - bit_shift
+** Sub Loop
+Perform bugnum subtraction on two buffers (FROM and TO), modifying the
+TO buffer in place.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input size in words
+
+Clobbers:
+
+- rax: stores carry flags between iterations
+- rcx: i
+- r8: temporary for the current byte
+** Multiplication of Natural Numbers
+Arguments:
+
+- rdi(out): destination buffer (assumed zeroed)
+- rsi(m): source buffer 1
+- rdx(): lol actually not an argument
+- rcx(n): source buffer 2
+- r8(mSz): buffer 1 size (> 0)
+- r9(nSz): buffer 2 size (> 0)
+
+Clobbers:
+
+- rdx(hi): upper product
+- r10(i): position in buffer 1
+- r11(j): position in buffer 2
+
+Borrows:
+
+- r12(i + j): intermediate index sum
+- r13(carry): carry value
+** Divloop
+Given an aligned work and divisor buffer of the same length, where the
+divisor has been bitshifted by =shift= amount for alignment, perform
+binary long division.
+
+Arguments:
+
+- rdi: work buffer
+- rsi: divisor buffer
+- rdx: bufsz
+- rcx: result buffer
+- r8: shift (used as loop i)
+
+Clobbers: - r9: word offset on set - r10: bit offset on set - r11:
+temporary for applying bitset
+** Divstep Greater Than Equals
+Compares two buffers of equal size to determine if, lexically, the
+bignat rdi >= rsi, for the purposes of division.
+
+Arguments:
+
+- rdi: buffer left
+- rsi: buffer right
+- rdx: buffer size in words
+
+Returns:
+
+- rax: true or false
+** Shift Right 1 in Buffer
+Performs an in place single bitshift right in the passed in buffer.
+Returns the new length of the buffer, which may be one less than the
+input length if the highest word becomes zero.
+
+Arguments:
+
+- rdi: buffer
+- rsi: current length of number in qwords in the buffer.
+
+Returns:
+
+- rax: new length of the number of qwords in the buffer.
+** Or in Buffer
+Performs bitwise-or in place on two buffers, where the output buffer is
+guaranteed to be larger than the input.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input size in words
+
+Clobbers:
+
+- rax: temporary input word
+- rcx: i
+** XOR in Buffer
+Performs bitwise exclusive or in place on two buffers, where the output
+buffer is guaranteed to be larger than the input.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input size in words
+
+Clobbers:
+
+- rax: temporary input word
+- rcx: i
+** Destructive Bitwise Operations
+=bufand=, =bufor=, and =bufxor= all perform bitwise operations on two
+bignats mutating the first argument in place.
+
+Arguments:
+
+- rdi: output buffer
+- rsi: input buffer
+- rdx: input buffer size
+
+Clobbers:
+
+- rcx: array index
+- rax: temporary input word
+** opennat
+*** Description
+This converts both direct and indirect natural numbers into a single
+uniform representation which allows us to handle all combinations with a
+single routine.
+
+The input must be a nat, and we return two values: the bit-size of the
+input and a pointer to an array of words.
+
+However! If the input is zero, we return a bit-size of 64 instead of
+zero. In practice, the bit-size that we return is always used to compute
+the word-size of the resulting buffer, which always needs to be
+non-empty.
+
+Arguments:
+
+- rdi: the u64 pointer tag, a direct or indirect natural.
+
+- rsi: pointer to 8 bytes of temporary storage.
+
+Returns:
+
+- rax: bitsize of the natural number (or 64 when xb==0)
+
+- rdx: pointer to the buffer which contains the bignum bytes. This is
+  rsi with *rsi = rdi when direct.
+
+Clobbers:
+
+- rcx: used as a temporary for most operations
+*** Implementation
+First we switch to see if the input is direct or indirect.
+
+For indirect numbers, we have macros which compute the bit-size and
+convert heap references into raw pointers, so we just use those to fill
+the result registers.
+
+Indirect numbers will never by empty, so the (0->64) hack doesn't come
+into play.
+
+If the input is direct, then we compute the bit-size ourself using
+lzcnt. For the result pointer, we just use the temporary space that we
+were assigned.
+** unpack
+*** Overview
+This function unpacks the top two items of the plan stack into the
+following standardized parts of a stack frame. Every stack frame which
+deals with two operands where one of them is an indirect number goes
+through this path.
+*** Registers
+
+Arguments:
+
+-
+-
+
+Clobbers:
+
+- rdi
+- rsi
+- rax
+- rdx
+*** Stack usage
+
+Stack frame prelude:
+
+#+begin_example
+ -8: x pointer tag             (x.bits)
+-16: x qword buffer for direct (x->p if direct)
+-24: x bitsize                 (xn.n)
+-32: x buffer                  (xn.p)
+-40: x buffer word size        (xwsz)
+-48: y pointer tag             (y.bits)
+-56: y qword buffer for direct (y->p if direct)
+-64: y bitsize                 (yn.n)
+-72: y buffer                  (yn.p)
+-80: y buffer word size        (ywsz)
+#+end_example
+
+Unpack x
+
+(rdi is already the pointer to x, just set direct pointer space)
+
+Calculate xwsz
+
+Unpack y
+
+Calculate ywsz
+** reorder
+Many of the algotirhms used to implement binary operations on bignums
+require that the first argument be smaller than the second. If the
+function is given arguments that do not satisfy that property, we need
+to swap them around first.
+
+The =ensure_x_lte_y= function factors out the code for checking this and
+performing the swap.
+
+The data that we need to swap is a compound structure: a poitner and a
+size. In order to simplify the code for dealing with this, we expect to
+be run in an environment where RBP points into the stack frame above us,
+and that the relevant part of that stack frame has a certain layout.
+
+TODO: What exactly is being swapped? I see four swaps. The pointers, the
+sizes, what else?
+
+Note that we don't swap the temporary buffers, [rbp - 16] and [rbp - 56]
+because that will swap the values of x and y in the direct case.
+** The Sub Jet
+This implements the subtraction operation on two PLAN values.
+*** The Fast Path
+We are only on the fast path if both inputs are direct atoms, so we
+check the 63rd bit on both, falling back to the slow path if either
+operand is indirect.
+*** The Slow Path
+Set up buffers to call bufsub in place.
+
+Arguments: - rdi: minuend - rsi: subtrahend
+*** bufdec: Decrement a Bignat In Place
+Given a pointer into a bignat, decrement the number in place.
+
+This works by decrementing the least significant word, and if that wraps
+around, we move to the next word and repeat.
+
+This relies on the invariant that bignats always end with a non-zero
+word, otherwise, this would continue to change words past the end of the
+buffer.
+**** Registers
+Arguments: rax=(A pointer)
+
+Clobbers: rax
+
+Returns: nothing
+**** Implementation
+This is just a trivial loop.
+
+- Subtract one from the word behind the pointer.
+
+- If it underflowed, move the pointer forward by one word and repeat.
+
+- Otherwise return.
+
+This uses =sub= instead of =dec= because =dec= doesn't set the carry
+flag on underflow.
+** The Or Jet
+** The XOR Jet
+** The And Jet
+** Left-Shift Jet
+This is a PLAN instruction that performs a left-shift on two PLAN
+values.
+*** The Fast Path
+The most common case is a direct number shifted left by a small amount,
+resulting in a direct atom. The fast path will be taken if the result
+fits in 63 bits.
+
+We can determine that we are on the fast path by comparinig the number
+of leading zeros in the number with the shift count. The result needs to
+have at least one leading zero, which happens only if the number of
+leading zeros is greater than the shift.
+
+This test works without modification with indirect arguments.
+
+- If the number is indirect, then the number of leading zeros will be
+  zero, which isn't greater than anything.
+
+- If the shift is indirect, then it will be a huge number, which is
+  never smaller than 64 (the maximum number of leading zeros in a word).
+
+Once we determine that we are on the fast path, we can just use the
+machine instruction for left-shift and return the result.
+** Right-Shift Jet
+*** The Fast Path
+The most common case is a direct number shifted right by a small amount,
+resulting in a direct atom.
+** Division Jet
+*** The Jet
+First, we evaluate x and y, and cast them both to nats.
+
+Next, we handle the edge cases:
+
+- If x is indirect, then we enter the slow path.
+
+- If y is zero, then this is a divide-by-zero error.
+
+- Note that we *do not* check if y is indirect.  If x is direct, but y is
+  indirect, then the register value of y is greater the fast path will produce
+  the correct answer anyways (zero).
+
+First, we evaluate x and case it to a nat, and then we evaluate y and cast it to
+a nat.
+
+*** The Fast Path
+If the slow path is not taken, we just use the =div= instruction.
+
+=div= works with a 128-bit input, and those inputs must be in =rax= and =rdx=.
+So, we fill those registers and then execute =div=.  The results will be in
+=rdx= and =rax=, but the =rdx= result will always be zero.
+
+Since our own return is also in rax, we can just return after that.
+*** The Slow Path
+Arguments:
+
+- rsi: divisor
+
+- rdi: dividend
+
+Returns:
+
+- rax: Result
+
+Clobbers:
+
+Yes
+********* Implementation
+First, we setup a stack frame so that we can store locals using rbp. The
+stack frame will have the following layout:
+
+#+begin_example
+  -8: x pointer tag             (x.bits)
+ -16: x qword buffer for direct (x->p if direct)
+ -24: x bitsize                 (xn.n)
+ -32: x buffer                  (xn.p)
+ -40: x buffer word size        (xwsz)
+
+ -48: y pointer tag             (y.bits)
+ -56: y qword buffer for direct (y->p if direct)
+ -64: y bitsize                 (yn.n)
+ -72: y buffer                  (yn.p)
+ -80: y buffer word size        (ywsz)
+
+ -88: shift
+ -96: max_result_words
+-104: result buffer             (*result)
+-112: work buffer               (*work)
+-120: divisor buffer            (*divisor)
+#+end_example
+
+As in all of the slow paths, we start by calling =unpack_x_y= in order
+to fill in the x and y fields from our arguments.
+
+Next, we examine =y= to see if it is zero. Generally, this case is
+already handled by the fast path, but it is still possible if a
+non-numeric value is passed as the divisor.
+
+In this case, we should return 0.
+
+Nest, we compare the dividend with the divisor, if the dividend is
+smaller, the result is 0.
+
+Then, we do this stuff that I don't understand yet:
+
+#+begin_example
+shift = xn.n - yn.n
+max_result_words = (shift + 1 + 63) / 64;
+u64* result = kalloc(max_result_words)
+u64* work = kalloc(xwsz)
+copy_qwords(work, xn.p, xwsz)
+u64* divisor = kalloc(xwsz)
+shiftl(divisor, yn.p, ywsz, shift);
+divloop(work, divisor, xwsz, result, shift)
+rax = shrink(r, rwsz)
+#+end_example
+
+And finally, we write the result back to the stack, close our the stack
+frame we set up, and return.
+* Operations
+Ops are the implementation of primops, functions, and jets.
+
+Ops are run against a stack that contains all of their arguments and the
+function itself. The function is ignored by most Ops, but we need it in
+order to implement recursive functions, and in order to get the error
+type for the =Die= jet.
+
+Ops consume all of their arguments from the stack and replace them with
+a single result. This result must be in WHNF.
+** op_sz()
+- First we drop the function itself, since we don't use it.
+
+- The argument can be lazy, so we evaluate it.
+
+- Next, we handle the case where the result is not a closure.
+
+  First, we preemptively zero out rax, since we want to return zero in
+  this case. Then we check the high four bits and jump to the return if
+  they don't indicate that this is a closure.
+
+  This logic can't be branchless, since trying to fetch the size of a
+  direct atom will segfault.
+
+- Now we have a closure, so we convert it into a heap offset and fetch
+  the size from the header (amd64 is litte endian, so the low bits of
+  the header are the first 32-bit word).
+
+- The size from the header is the size of the allocation box, which
+  includes the tag. We want the size of the closure, so we decrement
+  before returning.
+** Bex()
+=Bex= just computes =2**n=.
+
+First, we evaluate the argument and cast it to a number.
+
+Here, let's note that if we are given a really big number, then we cannot
+succeed.  If the input is *indirect*, then we definitly cannot succeed.
+
+But, we don't handle this case.  Instead, if we are given an indirect atom, we
+just attempt to allocate some 64-bit number of words, which will fail with a
+resource exaustion error.
+
+Next, we check if the result will fit in a direct atom. It needs to be
+less than 63 for that. Why? Because =2**63= is (1 << 63), which is 64
+bits wide and therefore does not fit in a 63-bit direct atom.
+
+If it does fit, we can compute the result directly by zeroing a register
+and then using =bts= to set the relevant bit.
+
+If it /doesn't/ fit in a direct atom, then we need to allocate an
+indirect atom, which we will do by calling =kalloc()=.
+
+First we save =rdi= (n) because we need to clobber that in order to make
+the function call.
+
+Next, we compute the words size.
+
+- =(2**n)= always requires =n+1= bits.
+
+- We can compute the word-size from the bit size via
+  =wordSz = ((bitSz + 63) / 64)=.
+
+- So that's =((n + 1 + 63) / 64)= or ((n + 64) / 64)`
+
+- That's equivalent to =(n/64)+1= by algebra.
+
+- We can implement =(n/64)= as =(n >> 6)=.
+
+- So the resulting sequence is =(n>>6)+1=.
+
+We will need this later, and =kalloc()= clobbers the register, so we
+save it again and make the call.
+
+Afterthe call, =rax= contains a raw pointer to the heap.
+
+We restore the word size into rsi, and the bit size into =rcx=.
+
+Next, we need to compute the value of the most-significant word, which
+is =(1 << (n%64))=, which we compute via =(1 << n&63)= except we use
+=bts= again instead of shifting.
+
+After that, we write the most significant word into the last element of
+the buffer, and then we call =shrink()= in order to setup the pointer
+tag.
+
+The first argument is the pointer, which is in rax, so we copy that to
+=rdi=.
+
+The second argument is the word-size, which we already restored to
+=rsi=.
+
+After the call to =shrink()=, we write the result to the top of the
+stack and return.
+** op_trace()
+This implements the =Trace= jet.
+
+Right now, this prints to standard output.
+
+To minimize dependencies, we don't print values here, we require that
+the input be a string.
+
+This code requires that the input be an unterminated ascii string
+encoded as a nat, and we add a newline for you. Both of these choices
+should be revisited.
+
+- TODO: write to stderr instead
+- TODO: should the user provide the newline?
+- TODO: should we cast the input to a nat?
+- TODO: should the input be a pad (ignore the last byte)?
+** op_crash()
+This implements the code path where a pinned nat is called that isn't a
+primop. This code just prints an error message and exits the process,
+but that's probably not ultimately the right behavior.
+
+TODO: What should actually happen here?
+
+In practice, this should throw an exception, and the Sire code should
+always register it's own exception handler. But what happens if they
+don't?
+
+The problem with this current code is that it assumes that the exception
+name and value are printable strings, which is not going to be the case
+in general.
+** op_cmp()
+Not that, in =cmp=, if x is direct, we don't need to check if y is
+direct or not. If y is indirect, then the high bit will be set, so the
+register will have a bigger value than x, which leads to the correct
+result in all cases.
+
+TODO: Would it be better to use the C stack for the recursion? We could
+flush to the PLAN stack just for evaluation.
+** op_judge()
+This is the naive law interpreter. Given a law (or a pinned law) and
+it's arguments, this constructs the graph specified by the law body.
+That graph is not in WHNF, so we tail call back into =plan_eval()= in
+order to finish the evaluation.
+
+Doing this for basic laws is pretty straightforward, we can just use
+=expo()= to traverse the law body and expand the tree template.
+
+However, laws support LETREC, so we actually need to produce a /graph/.
+The result can contain /cycles/. Most of the complexity in =op_judge()=
+is around the handling of LETREC.
+
+Before we jump into the details, let's go over at a high level how this
+works.
+
+- For each let binding, we allocate a placeholder thunk that contans a
+  dummy value and no arguments.
+
+- We need to allocate these up-front, before we need to be able to point
+  to them before we know their value. That's how we are able to produce
+  cycles.
+
+- The initial stack layout is (func : arg1 : arg2 : ....), which
+  perfectly lines up with how law bodies reference into the environment.
+  Each reference exactly corresponds with an index into the stack.
+
+- However, each let bindings is added to the environment /at the end/.
+  Once we allocate the dummy thunks for each variable, we get this:
+
+  #+begin_example
+  (var2 : var1 : func : arg1 : arg2 : ...)
+  #+end_example
+
+- So, in order to get back to an environment which we can index into, we
+  need to rearrange the stack, which we can do with a fairly simple
+  loop.
+
+- Once we have the environment setup, we go through each let binding
+  one-by-one, and replace the dummy paramater with a thunk that
+  corresponds to the actual expression of the binding.
+
+- Finally, we construct the tree for the body itself, and evaluate it to
+  get the final result.
+
+Alright, that's the high level overview, so let's go through this in
+detail, step-by-step.
+
+- First, we need to know the number of let bindings in the law.
+
+- This information is pre-calculated when we construct a law, so we
+  judge need to fetch it.
+
+- The function is either a law, or a pinned law. In order to extract the
+  number of lets, we need to get the underlying law.
+
+  So, we load the top of the stack into =rdx=. If it's a law, then we
+  are good. Otherwise it's a pinned law, in which case we can get the
+  actual law by dereferencing the pointer (the pin item is the first
+  thing in the pin).
+
+- Now (=.judge.setup_has_law=) we have the law in =rdx=. We fetch the
+  pre-computed let-count from slot 5 (byte offset 40). We load this into
+  `r10.
+
+- Next, we get the arity of the law, which is at slot 4 (byte offset
+  32). We load it into =r11=.
+
+- At this point we need to check if there are any lets. If there are no
+  lets, we can skip a bunch of work and just jump directly to expanding
+  the law body (=.judge_expo_setup=).
+
+- Current register state: rdx=law, r11=nargs, r10=nlets.
+
+- If there /are/ lets, then the first thing we need to do is allocate
+  all of them, by calling =mkvar()= once for each law.
+
+  =mkvar()= will construct a dummy thunk with no parameters, which uses
+  =x_hole= as the executioner, and which contains a dummy value as it's
+  function.
+
+  Unlike other executiners, =x_hole= expects the first slot to be a
+  thunk. It evaluates that thunk and the replaces itself with a resolved
+  thunk.
+
+  These details matter here, because, once we expand the expression
+  associated with each thunk, we need to mutate the slot and replace the
+  hole-slot with that thunk.
+
+- This is a simple loop that uses =rcx= to count up to =r10=. =mkvar()=
+  only clobbers r8 and rax, so we don't need to save and registers
+  before making this call.
+
+- Once we have allocated each hole, we rearrange the stack by performing
+  a series of swaps:
+
+  #+begin_example
+  j = nargs
+  for (i=0; i<nlets; i++, j++):
+      x = sp[i]
+      y = sp[j]
+      sp[j] = x
+      sp[i] = y
+  #+end_example
+
+  Here, i is rcx, and j is rax.
+
+- The result will be that the function and the arguments are at the top
+  of the stack, and all of the holes are after that.
+
+  Note that this algorithm does not preserve the order of the lets which
+  we allocated, but that doesn't matter because we haven't put anything
+  into them yet.
+
+- After this loop, we have successfully rearranged the stack, but we
+  have performed allocation, which may have invalidated the law-pointer
+  in =rdx=, so we reload the law using the same process as before.
+
+- Next, we need to setup the environment for =expo()=.
+
+  Expo expects rsi to be a pointer into the environment, which is the
+  current top of the stack.
+
+  And it expects =rdi= to be the maximum reference into the environment,
+  which is the number of lets plus the arity.
+
+  Expo also needs the actual law body to be at the top of the stack, so
+  we push that.
+
+- Once the expo environment is setup, we need to calculate the thunk for
+  each let binding.
+
+  This is a mouthful, so let's start by reviewing the current state:
+
+  - rcx will be a loop counter
+  - r10 is the number of lets.
+  - r11 is the number of arguments.
+  - rdi is the maximumm reference index in the environment (sz+1).
+  - rsi is the a pointer to the environment.
+  - rsi is the a pointer to the environment.
+  - the top of the stack is a reference to a let binding, which is
+    =1[exp body]=.
+
+- Here's the logic of the loop:
+
+  The first step is to rip apart the let binding, pushing both the body and the
+  expression. After this, the expression to expand is at the top of the stack
+  (needed for =expo()=), and the next let binding (or law body) is above that in
+  the stack (needed for the next step of this process).
+
+  The second step is to call =expo()=. Expo is complex, so we don't try
+  to do interprocedural register allocation, and we instead just save
+  all of our live registers.
+
+  Once we have converted the expression into a thunk, we need to mutate
+  the binding hole to contain it.
+
+  We fetch the binding hole from sp[3 + i + nargs], skipping over the
+  binding thunk, the binding body, the function, the arguments, and all
+  of the lets that we have already filled.
+
+  We fetch that value, and then convert it into a raw pointer. This all
+  happens in r8.
+
+  Finally, we overwrite the second slot of the hole with the value at
+  the top of the stack (which is the thunk for the binding).
+
+  At this point, we are done processing the current let, so we pop it
+  off of the stack.
+
+  If there are more lets to process, we will repeat this process,
+  otherwise the top of the stack will contain the expression for the
+  body.
+
+- Finally, we consruct the thunk for the body, delete everything else
+  from the stack, and tail call into =plan_eval()=.
+
+  The first step of that process is to call =expo()= one final time. We
+  only save =rdi= here because that's the only live register at this
+  point.
+
+  Then, we grab the resulting thunk from the top of the stack, delete
+  everything else from the stack, and place the result thunk at the top.
+
+  Finally, we perform a tail call into =plan_eval=, since the body is
+  (usually) a thunk and all Ops must produce a result in WHNF.
+* Allocating Tagged Arrays
+This allocates a heap node for a mutable array with a certain size and
+tag, and then copies an array of elements into that.
+
+Here is the bit-pattern for poitners to mutable arrays:
+
+#+begin_example
+10111ttttttttzzzzzzzzzzzzzzzzzzz
+#+end_example
+
+- 10111 is the value type
+- tttttttt is the tag
+- zzzzzzzzzzzzzzzzzzz is the length
+
+The heap-node header for mutable arrays uses the following bit-pattern:
+
+#+begin_example
+{type=ARR(10111, tag=8, sz=3)}
+001zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+#+end_example
+
+Where the 001 indicates that it is a closure, array, or thunk that has
+not been moved to another GC heap, and the zzzzs are the word-width of
+the allocation box.
+
+So the pointer is something like:
+
+#+begin_example
+10111ttttttttzzzzzzzzzzzzzzzzzzzpppppppppppppppppppppppppppppppp
+#+end_example
+
+And the pointed-to data is something like:
+
+#+begin_example
+001zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+#+end_example
+
+Where a, b, c, and t
+
+Where the actual reference the (the ppppp part of in the reference) is a
+word index into the heap, pointing to the first data word (the tag, the
+ttttt*) part.
+** Some Thoughts on Performance
+While this code only has a single branch, which should always be
+predicted correctly, it's still quite a significant amount of code.
+
+We need to do ALL OF THIS? EVERY TIME we allocate an array????
+
+Yeah, I mean, we'll have to see how fast it is in practice.
+
+The upside of all of this is that we can almost always get the size and
+tag directly from the pointer without going out to memory at all.
+Especially for things like switching on ADTs, this is likely to make a
+big difference.
+
+Another point is that, in a more complex implementation, most of this
+logic can be specialized. Almost all of the code here is just about
+constructing the pointer tag and heap-node header.
+
+For example, if some code is allocating a 3-element mutable array with
+tag=0, then the code generator we can statically compute the header word
+and the pointer-tag mask, which eliminates essentially all of this
+logic.
+* jet()
+=jet()= is given a pin item as its argument (rdi), and returns a
+function pointer to an "op" which will do evaluation.
+
+If it's a pinned natural, then this is either a primop or a crash.
+
+If it's a pinned law, this is either a jet or =op_judge= (the naive law
+interpreter).
+
+If it's a pinned pin, we return op_crash (you are not allowed to run
+pinned pins).
+
+In the future, this will examine some global flag and, if set, we will
+invoke the compiler in order to dynamically construct code for the pin.
+* Procedure Docs
+** mkclosure()
+Same as plazmo_mkrev except that the size is passed in %rdi, and that
+the result is DAT-tagged.
+
+TODO: all of these array allocators should be merged somehow.
+
+f x y z -> closure
+
+rsi: params
+** plazmo_mk_rev()
+#+begin_example
+plazmo_mkrev(z, y, x, 7, 3) ->
+    7[x y z]
+
+plazmo_mkrev(xs.., tag, sz):
+    sz     = sp[0]
+    tag    = sp[1]
+    ref    = alloc_tagged_array(tag, sz)
+    i      = (u32) ref // note the implicit zero extension in mov(edi,eax).
+    dest   = &heap[i]
+    width  = num_elems + 1 (tag)
+    source = &stack[1]
+
+    memcpy(dest, source, width*8)
+
+    sp += width  // drop all arguments but one.
+    *sp = ref
+    return
+
+args      --  rdi(tag), rsi(sz)   // these are not modified
+clobbers  --  r8, r9
+returns   --  rax(ref)
+#+end_example
+** plan_copy_closure()
+This creates a new closure by copying data from an existing closure. The
+new closure may be smaller than the existing closure.
+
+Arguments:
+
+- rdi: size
+- =sp[0]=: closure to copy from
+
+Returns:
+
+- =sp[0]=: new closure
+
+Clobbers:
+
+- rdi, rsi, rcx, r8, r9, rax
+*** Implementation
+First, we save =rdi= into =rcx= to free up =rdi=, since =alloc_array=
+takes the tag in that register.
+
+Next, we load the tag into =rsi=. We grab the closure from the top of
+the stack, extract the low 32 bits, and then use that to index into the
+heap.
+
+Next, we load the size into rsi, which is the second argument to
+=alloc_array=. And then we call =alloc_array=, which will place the
+resulting heap reference into =rax=.
+
+Next, we need to copy data from the old closure into the new closure
+using =rep movsq=. We load a pointer to the source closure into =rsi=
+and a pointer into the result closure into =rdi=. The number of words to
+copy goes into rcx (which is the size of the closure plus one for the
+tag).
+
+But! Before we do the actual copy, we will take advantage of the fact
+that both pointers are already in registers and copy over the NF flag
+from the old closure. We do this by copying the GC header, zeroing out
+the low bits (since the size may be different) and then =or=ing it
+against the old header.
+
+=rep movsq= will modify all three registers, so we can't handle the NF
+so easily otherwise.
+
+And then finally, we do the actual =rep movsq= to copy all of the
+fields, and we overwrite the top of the stack with the result.
+** mklaw()
+First off all, we need to jet match.
+
+The inputs must already be normalized, and the name/arity must be cast
+to nats, and the arity must be non-zero.
+
+First, we need to calculate the eval, arity. The second slot on the
+stack is an explicit arity, but we need to cap it to 268435455.
+** mkpin()
+Clobbers:
+
+- rdi, r8, rax
+
+Pin slots:
+
+- A reference to the pin item.
+- Jet Match (just 0 for now)
+- Hash (just 0 for now)
+- Subpins (just 0 for now)
+
+Process:
+
+- Compute the pin arity.
+- Allocate the pin.
+- Write the item into the first word.
+- Write zeros into the following three words.
+- Return the pin.
+*** Implementation
+#+begin_example
+call    pinitem_eval_arity
+mov rdi, rax
+call    alloc_pin
+mov rdi, [r15]
+mov [r15], rax
+mov eax, eax
+mov [r12 + rax*8], rdi
+mov qword ptr [r12 + rax*8 + 8], 0  # jet match
+mov qword ptr [r12 + rax*8 + 16], 0 # hash
+mov qword ptr [r12 + rax*8 + 24], 0 # items
+ret
+#+end_example
+** mkthunk_clz()
+Arguments: rdi=(argument count) rsi=executioner
+
+Stack arguments: f x y z ..
+
+Constructs a thunk *or a closure* depending on the number of parameters and the arity of the head.
+
+** mkthunk()
+Arguments: rdi=(argument count) rsi=executioner
+
+Stack arguments: f x y z ..
+
+Clobbers: rdi, rsi, rcx, r8, rax
+
+Register results: none
+
+Stack results: (f x y z) ..
+*** Implementation
+At a high level, all this does is allocate a thunk of a certain size,
+and then fill it copying data directly from the stack.
+
+- First, we fill r8 with the size of the thunk (since alloc_thunk) takes
+  it's argument through that register.
+
+- =mkthunk= is given the number of parameters, but alloc_thunk expects
+  the full thunk size, so we need to add 2. One for the function, and
+  one for the executioner.
+
+- Then we call =alloc_thunk=, which will write a heap reference into
+  =rax=, which we promptly convert back to a raw pointer stored in =r8=.
+
+- We fill the first slot of the thunk with the executioner.
+
+- Next we set rsi to the stack, since that's where we will copy from.
+
+- Then we set the number of words to copy to be the argument count plus
+  one (for the function).
+
+- And then we go ahead and pop the stack early in order to free up rdi.
+
+- And then we set rdi (the destination) to point to the second slot in
+  the thunk.
+
+- And then we do the copy and place the result reference at the top of
+  the stack.
+** plan_loadbuf()
+Given a pointer (rdi) and a byte size (rsi), treat the input bytestring
+as a LSB number, and load it into a Nat value.
+
+First, we need to allocate a buffer for the result using =kalloc()=. We
+will do this even if the input will be direct, since =shrink()= handles
+that edge-case for us.
+
+Before we do the allocation, we need to save the byte size and pointer
+to avoid clobbering, and then we calculate the word size, since that's
+what =kalloc()= requires.
+
+Next, we copy the input data into the buffer using =rep movsb=.
+
+After that, we pass the buffer and the word-size into =shrink()= in
+order to convert this into a well-formed heap reference.
+
+That routine will convert the result to a direct atom if necessary,
+remove any trailing zero words, and set the appropriate pointer tags.
+
+And finally, we push the result to the PLAN stack.
+** Subtraction
+*** Sub():
+This is just an adaptor for =RegSub= which makes it work with the old calling convention (which is being phased out).
+*** RegSub():
+This implements the =Sub= jet in PLAN, which handles lazy arguments, and cast
+non-numeric arguments to zeros.  This uses the new register-based calling
+convention.
+*** _sub():
+This is does general subtraction given two nats, optimizing for the case where both inputs are direct.
+*** slowsub(): Non-Direct Subtraction
+**** Overview
+=slowsub= takes two nats, x and y, of which at least one must be indirect, and
+returns one must expects two be given two nats, of which at least one is
+indirect, and returns (x-y).
+**** Registers
+Arguments: x=rdi, y=rsi
+Returns: (x-y)=rax
+Clobbers: everything
+**** Arguments and Preconditions
+We are called with x=rsi and y=rdi.  Both arguments must be nats, and at least
+one of them must be indirect.
+**** Is y direct?
+First, we check if y is direct, since we have a fast-path for that case.
+***** The =slowsub.yword= Fast-Path
+Note that, if y is direct, then x is indirect and x is greater than y.  We know
+this since we require that at least one argument must be indirect.
+
+We handle this case by reserving space with =reservecopy= by copying =x=, then
+we call =bufsub1= to do the subtraction in-place, and then we finalize the
+result with =claim=.
+**** Move x and y to stable registers
+Next, we save x in r10 and y in r11.  These registers aren't clobbered in any of
+the calls that we make, and the new GC routine treats registers as roots.  This
+lets us avoid pushing to the stack.
+**** Comparing the arguments
+First we comapre the two arguments, since  long subtraction is easier if we know
+that x is bigger. Comparing is generally quite cheap, since we have a lot of
+ways to get immediate results without actually looping over the words.
+***** What if x isn't greater?
+If x is not greater than y, we return 0 right away.  At this point we know that
+y is indirect and x>y, therefore x is also indirect.
+**** Reserving Space with =reservecopy=
+Call =reservecopy= to reserve space at the end of the heap and initialize it by
+copying the data in =x=.  This puts a pointer in rax and a word-size in rdx.
+**** In-Place subtraction with =bufsub=
+Modify the result by doing an in-place subtraction using =bufsub= (which requires that x>y).
+**** Finalize the result with =claim=
+Finally, we convert our working buffer into a result by calling =claim=, which
+handles all of the edge cases around shrinking words and maintaining all of the
+heap invariants.
+*** bufsub()
+This does in-place subtraction.
+
+It takes three arguments: x (word array), y (word array), and the word-width
+of y.
+
+This only works if x is greater than y.  Very bad things will happen otherwise.
+
+This doesn't return anything, but the side-effect of calling this is that the
+word in the =x= buffer is replaced with =(x - y)=.
+*** bufsub1()
+This does an in-place subtraction of a direct atom from a BigNat.
+** reservecopy(): Reserve space for a new nat by copy.
+*** Overview
+This reserves space at the end of the GC heap for a new nat, and
+initializes that space by copying the indirect given as an argument.
+*** Registers
+Argument rdi: an indirect nat to copy
+Returns rax: a pointer to the reserved space
+Returns rdx: the word-size of the new nat
+Clobbers: rdi, rsi, rcx, rdx.
+** =compare=
+*** Overview
+This compares two nats.
+
+Takes two nats as arguments in rdi/rsi, and returns an ordering (0=LT,
+1=EQ, 2=GT).
+*** Registers
+Arguments: rdi=x/Nat, rsi=y/Nat
+Returns: rax/Ord
+Clobbers: rax, rdi, rsi, rcx
+*** Implementation
+The first thing to note, is that, if /either/ argument is direct, then
+we can just directly compare the registers.
+
+If both are direct, then obviously a normal register comparison works.
+
+If only one is indirect, than that one is bigger, and also has a bigger
+register value (because the high bit is always set on indirect
+references).
+
+We can test for this case with the following code, which does a bit-wise
+and of the two registers and jumps if the high bit of the result is set,
+which is only true if both inputs are indirect.
+
+#+begin_example
+test    rdi, rsi
+js  compare.indirect
+#+end_example
+
+If the result is not direct, then we just compare the two registers, and
+convert the flags register into an Ordering enum with the following
+sequence.
+
+#+begin_example
+seta    al
+setae   ah
+add al, ah
+movzx   rax, al
+#+end_example
+
+That leaves only the both-indirect case unhandled.
+
+To handle that case, the first thing we do is load the GC headers for
+each, and compare them directly.
+
+Because the tags are the same (they are both nats), the result of
+comparing the headers is the same as the result of first extracting the
+bit-sizes and then comparing.
+
+If the sizes are non-equal, the then flags register contains the correct
+results, and we can re-use the same logic as above by jumping to that
+code.
+
+Otherwise, we have two nats of identical bit-size. We throw away one
+size, and convert the other into a word-size.
+
+Then we iterate over all of the words in the two arrays and search for a
+difference. If we find one, we jump to the same code for constructing
+and returning the result enum.
+
+At each loop point, we decrement the index and check if it underflowed,
+if it did, then we return 1 as the two nats are equal.
+** The Seed Loader
+:TODO: Document the seed loader.
+* TODOs
+** TODO Kill Cmp Jet
+- Jet NatCmp
+- Jet OrdTag
+- Jet PinItem
+- Jet LawName, LawArgs, LawBody
+- Jet Ix
+
+No, nevermind. We need it because it traverse arrays.
+
+But wait, can't we just change the implementation of Cmp to use Ix and
+Sz?
+
+Why does this need to be jetted? Nothing in the jet is especially
+different from what a good compiler would produce for a reasonable PLAN
+implementation of PLAN-comparison.
+** TODO Bug: Buffering Segfault
+Reading input in chunks of 64 instead of 128 causes a segfault. I guess
+that's something in the logic for combining strings?
+
+Also, reading a line at a time is MUCH faster than just feeding it
+arbitrary chunks, I guess that make sense since the operations involved
+into slicing and combinings strings are all unjetted.
+** TODO =Trace= and profiling traces.
+It might be a good idea to have another jet like =Trace= (maybe even one that
+takes over the name and pushes logging out to another name), which is used for
+collecting profiling information.
+
+We also should be able to run a PLAN evaluation, and collect all of the outputs
+(like a writer monad), and those outputs should be arbitrary values.
+
+This could be done using =Trace=, but that overloads the meaning, so maybe it
+would be better to have a separate thing for this?
+
+Basically, =Try= should be a =mock=-like thing that enables a number of new
+features in the sub-interpreter:
+
+- Catching Exceptions (ExceptT)
+- Capturing Debug output (WriterT)
+- Accumulating a stream of values (WriterT)
+- unsafePerformIO (IO)
+** TODO Tracing Raw Pads
+In order for this to work:
+
+- Update the bootstrap code to add newlines and a terminating =1= bit to
+  the end of every string before we trace it.
+
+- Then update =Trace= to just raw output the given bar, without any extra
+  newline.
+** TODO Update Spec
+The spec should be update so that trying to call pinned pins and pinned
+closures just crashes.
+
+This is very complex to implement and it's confusing, it should just
+crash.
+** TODO Cmp Test Fail without Jet
+I get a segfault in the =Cmp= tests (=test/30=) if I run them with the
+=Cmp= jet disabled.
+** TODO Why does Cmp not terminate, even if I just =natCmp=?
+In order to partically eliminate the {Cmp} jet, I tried jetting the helper
+function `{natCmp}`, but evaluation still does not terminate.  What gives?  Is
+the jet not being run somehow?  Are we running Cmp on big arrays?  It really
+does seem like this should work, so figure out what's going wrong.
+* Jets
+TODO Write a document for every jet which explains the expected
+performance characteristics and explains which evaluation order is
+required.
+
+TODO Divide by zero should be a timeout exception. TODO Lazy HEAD thunk
+on ##3 so that things like LawBody and Cdr aren't horribly slow on big
+closures. TODO Delete the Cmp jet, rename =Cmp= to =cmp=. TODO Rewrite
+=cmp= to use Ix and Sz instead of Car and Cdr. TODO Write NatEq, NatCmp
+and jet them. TODO Jet Trunc, BitSet, BitClear, BitSlice TODO Jet Up
+(Fill, Fold, and Gen can be implemented in Plazmo). TODO Jet ByteIx,
+ByteSz, ByteUp TODO Jet Mod, DivMod.
+
+TODO Remove a shitload of capitalized things from the bootstrap! We
+don't really need many jets at all! Rewrite things into more efficient
+code instead. For example, the following code should use Lsh instead of
+Mul:
+
+#+begin_example
+ = (StrPad s)       | BitSet (Mul 8 ByteSz-s) s
+#+end_example
+* Bootstrap
+*** TODO Use (!=) instead of (/=)
+The latter is too ugly when used tight-infix.
+*** TODO Sire should force every expression
+ Sire should force the expression at each step.  Right now =(Die 3 4)= doesn't
+ crash because it is neither printed nor forced).
+*** TODO Bootstrap uses NeoRex
+We should upgrade the bootstrap to use the new Rex system.  Not only is this
+nicer, but the character-oriented lexer should have much better unjetted performance vs the line-oriented parser.
+* Execution Traces
+*** TODO Design a binary format.
+Design a custom (binary) file format for execution traces, and write a
+utility that converts that to JSON.
+**** Some thoughts on format design:
+We really only need the CPU time, the current code pointer, and a flag
+which indicates ENTER or EXIT. Maybe tail calls should be marked
+explicitly also?
+
+* Strictness Properties of Jets
+** Pins that are strict on all of their arguments:
+Inc Dec Nil Any
+Add Sub Bex Bits Mul Div Mod DivMod
+Bix
+Cmp
+Hd Up Sz
+IsApp IsLaw IsNat IsPin
+Compare Eq Ge Gt Le Lth
+Nat
+And Or Xor And
+Rsh Lsh Trunc
+Seq Trace
+
+** Jets which are jealeous, but not strict
+
+These jets are not strict in all of their arguments, but they still
+never share their argument thunks:
+
+Case Ix If Ifz
+
+** Jump-Tables
+
+The second argument to both Case and Ix are not only unshared, but, if they are
+closure literals (undersaturated expressions), then all of their sub-expressions
+are also unshared.

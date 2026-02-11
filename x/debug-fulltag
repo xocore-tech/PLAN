@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+MACHINE_FILE=fulltag
+
+xseedfile=.demo-full-tag.xseed
+
+plunder xsave -Z --new-format $xseedfile demo_full_tag
+if [ $? -ne 0 ]; then
+  echo "seed file compile failed" >&2
+  exit 1
+fi
+
+rm -f ${MACHINE_FILE}
+make x/boot x/plan
+x/boot $xseedfile ${MACHINE_FILE}
+
+export PLANVM_GC1_CHECKCHANCE=1000
+export PLANVM_GC2_CHECKCHANCE=100
+
+#./${MACHINE_FILE}
+# --profile
+gdb -ex 'break die' -ex 'run' ${MACHINE_FILE}
+# 2>&1 | tee gdb.log
+
+
+#gdb -ex 'break die' -ex "run $xseedfile" x/plan
+# 2>&1 | tee gdb.log

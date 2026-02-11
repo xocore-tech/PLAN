@@ -1,0 +1,63 @@
+cords
+
+$Cmp _ force _
+
+"direct".
+
+dup 1 A 9 AE.
+dup 5 A 5 AE.
+dup 9 A 1 AE.
+
+"pairs".
+
+dup (1 1A) A (1 1A) AE.
+dup (9 1A) A (1 1A) AE.
+dup (1 9A) A (1 1A) AE.
+dup (1 1A) A (9 1A) AE.
+dup (1 1A) A (1 9A) AE.
+
+"trips".
+
+dup (1 1 A 1 A) A (1 1 A 1 A) AE.
+dup (9 1 A 1 A) A (1 1 A 1 A) AE.
+dup (1 9 A 1 A) A (1 1 A 1 A) AE.
+dup (1 1 A 9 A) A (1 1 A 1 A) AE.
+dup (1 1 A 1 A) A (9 1 A 1 A) AE.
+dup (1 1 A 1 A) A (1 9 A 1 A) AE.
+dup (1 1 A 1 A) A (1 1 A 9 A) AE.
+
+"sizes".
+
+dup (9 9A) A (0 0 A 0 A) AE.
+dup (0 0 A 0 A) A (9 9A) AE.
+
+"laws".
+
+dup (1 2 3 L) A (1 2 3 L) AE.
+dup (9 2 3 L) A (1 2 3 L) AE.
+dup (1 9 3 L) A (1 2 3 L) AE.
+dup (1 2 9 L) A (1 2 3 L) AE.
+dup (1 2 3 L) A (9 2 3 L) AE.
+dup (1 2 3 L) A (1 9 3 L) AE.
+dup (1 2 3 L) A (1 2 9 L) AE.
+
+"pins".
+
+dup 1P A 1P AE.
+dup 9P A 1P AE.
+dup 1P A 9P AE.
+dup (1 1 AFP) A (1 1 AFP) AE.
+dup (9 1 AFP) A (1 1 AFP) AE.
+dup (1 9 AFP) A (1 1 AFP) AE.
+dup (1 1 AFP) A (9 1 AFP) AE.
+dup (1 1 AFP) A (1 9 AFP) AE.
+
+"bignums".
+
+dup 0x7fffffffffffffff                A 00x7fffffffffffffff               AE.
+dup 0x7fffffffffffffff                A 0x8000000000000000                AE.
+dup 0x8000000000000000                A 0x7fffffffffffffff                AE.
+dup 0x8000000000000000                A ($Add F 1 A 0x7fffffffffffffff A) AE.
+dup ($Add F 1 A 0x7fffffffffffffff A) A 0x8000000000000000                AE.
+dup 0x010000000000000000              A 0xffffffffffffffff                AE.
+dup 0xffffffffffffffff                A 0x010000000000000000              AE.

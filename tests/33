@@ -1,0 +1,7 @@
+cords
+
+3P ({pin}0A)A ({law}0A)A ({app}0A)A ({zero}0A)A ({succ}0A)A (0P 3A)A       _E.\
+3P ({pin}0A)A ({law}0A)A ({app}0A)A ({zero}0A)A ({succ}0A)A (1P 3A 4A 5A)A _E.\
+3P ({pin}0A)A ({law}0A)A ({app}0A)A ({zero}0A)A ({succ}0A)A (3 4A)A        _E.\
+3P ({pin}0A)A ({law}0A)A ({app}0A)A ({zero}0A)A ({succ}0A)A 0A             _E.\
+3P ({pin}0A)A ({law}0A)A ({app}0A)A ({zero}0A)A ({succ}0A)A (2P 3A)A       _E.

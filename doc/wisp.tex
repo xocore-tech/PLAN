@@ -1,0 +1,379 @@
+\input{common}
+
+\title{The Wisp Language}
+\author{Sol}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\begin{abstract}
+
+This document describes the design and implementation of the Wisp
+language, an extremely small lisp for PLAN which is used to bootstrap
+Sire.
+
+\end{abstract}
+
+\section{Why Boot with Wisp instead of Sire?}
+
+Sire has proven to be a pretty wonderful language.  However, despite
+being very small, it has been very difficult to serialize to a seed
+without specialized runtime system support for serialization.
+
+The root problem is that PLAN functions have a lot of shared structure,
+and the serializer must process *all* of that structure, which ends up
+being exponentially large.
+
+In the full production setting, this type of problem is solved using
+the memoized \lstinline|PinHash| jet, which allows us to detect sharing
+within the pin DAG.  However, this is a fairly complex features, and I
+don't want to depend on that in order to bootstrap a seed.
+
+The solution is then to just radically decrease the size, and have a
+another, even tinier language in which Sire itself is implemented.
+
+This language can also take advantage of XPLAN in order to get direct
+access to primops, without needing to define all of the jets.  This also
+makes it possible to run it without jets.
+
+The quine process will be something like:
+
+\begin{itemize}
+\item
+    \lstinline|./plan wisp.seed <wisp.wisp| to create a new Wisp seed.
+\item
+    \lstinline|./boot wisp.seed <boot.wisp| to bootstrap a new caching
+    Sire REPL.
+\end{itemize}
+
+The full bootstrap process will look something like this:
+
+\begin{itemize}
+\item Use Wisp to rebuild itself (to confirm the seed).
+\item Use Wisp to build the bootstrapping Sire runtime.
+\item Use Wisp to build a basic online PLAN compiler with jet matching.
+\item Use Sire to build Sire (in the PLAN sandbox, with jet matching)
+\item Now we have a working, sandboxed Sire environment.
+\end{itemize}
+
+In addition to bootstrapping, Wisp should be useful for defining a suite
+of basic runtime system tests.  Since it is a much smaller language,
+there are a lot fewer moving parts.
+
+\section{What Features Will Wisp lack?}
+
+These Sire features will not be included:
+
+\begin{itemize}
+\item Rex Syntax
+\item Printing
+\item Error Messages
+\item Error Handling generally
+\item Modules
+\item Inlining
+\item Lambda Lifting
+\item Let-Optimization
+\item Nested lets
+\item Pinned Lambdas
+\end{itemize}
+
+Sire needs these features because it needs to be expressive enough to
+define jets, and to be able to be able to be evolve itself into a fairly
+nice language through macros.
+
+However, for just bootstrapping, we only need very basic macros (mostly
+just destructuring and pattern matching).  So instead, Wisp will basically
+just be an s-expression syntax for PLAN, with a namespace of globals
+and a very dumb macro system.
+
+\section{Wisp Syntax}
+
+Core Syntax:
+
+\begin{verbatim}
+    ; comments
+    exprs :=
+         | expr
+         | expr exprs
+    body :=
+         | (@ sym expr) body
+         | expr
+    args :=
+         | sym
+         | sym args
+    expr :=
+        | sym ; attempt to read number if undefined
+        | "str"
+        | (exprs)
+\end{verbatim}
+
+Syntactic Sugar:
+
+\begin{verbatim}
+    [..]       -> (BRACKETS ..)
+    {..}       -> (CURLIES ..)
+    <..>       -> (BRACES ..)
+    sym(exprs) -> (sym (exprs))
+\end{verbatim}
+
+Pre-Defined Values:
+
+\begin{verbatim}
+    PIN = {"PIN" 1 [<0> [[0] 1]]}
+\end{verbatim}
+
+Pre-Defined Macros:
+
+\begin{verbatim}
+    (function (sym args) body) ->  compute a constant law
+    (defmacro sym expr)        ->  binds a macro, returns 0
+    (defvalue sym expr)        ->  binds a value, returns 0
+    (= (f args) body)          ->  (defvalue f (PIN (function (f args) body)))
+    (= nm body)                ->  (defvalue f body)
+    (CURLIES x y b)            ->  (function (_ x y) b)
+    (CURLIES x y -> b)         ->  (function (_ x y) b)
+    (CURLIES f x y => b)       ->  (function (f x y) b)
+\end{verbatim}
+
+\section{Wisp State}
+
+The Wisp state is threaded through all macro expansions, and it is just:
+
+\begin{itemize}
+\item The next free number (for gensym).
+\item A binary search tree of bindings.
+\end{itemize}
+
+A binding is a name, a macro value, and an actual value.
+
+\section{Reading Wisp}
+
+\subsubsection{Expression Representation}
+
+\begin{verbatim}
+    foo     = %foo      ; symbol
+    ()      = 0         ; empty expression
+    (x y z) = (0 x y z) ; expression
+    "foo"   = (1 %foo") ; constant value
+\end{verbatim}
+
+\subsubsection{Reading Expressions}
+
+We characterize expressions by looking up an enum in an array and
+switching on it.
+
+\begin{itemize}
+\item Zero?  Crash.
+\item Space?  Try again.
+\item Double quote?  Read a string.
+\item Symbol character?  Read a symbol.
+\item '('? Read a paren expression.
+\item '['? Read a bracket expression.
+\item '<'? Read a pointy expression.
+\item '{'? Read a curly expression.
+\item Comment character?  Read a comment.
+\end{itemize}
+
+Reading non-paren expression is the same as reading a paren expression
+except with a different termination character and with the result wrapped
+in a dummy expression.
+
+\begin{asm}
+(= (readParen buf read)   (readNested buf read ")" 0)
+(= (readBracket buf read) (Sap "BRACED" (readNested buf read ")" 0)))
+(= (readCurly buf read)   (Sap "CURLY"  (readNested buf read "}" 0)))
+(= (readPointy buf read)  (Sap "POINTY" (readNested buf read ">" 0)))
+\end{asm}
+
+\subsubsection{Reading comments}
+
+This also uses a table.
+
+\begin{itemize}
+\item zero? crash.
+\item newline? re-enter the reader.
+\item anything else? recur.
+\end{itemize}
+
+\subsubsection{Reading Symbols}
+
+\begin{itemize}
+\item If the next character is a symbolchar, recur.
+\item If the next character is a nesting character, read, wrap, return.
+\item Otherwise return.
+\end{itemize}
+
+\subsubsection{Nested Expressions}
+
+\begin{itemize}
+\item Space?  Repeat
+\item Term?  Return
+\item Otherwise, read a value, collect it, repeat.
+\end{itemize}
+
+\begin{asm}
+(= (readNested b0 read end acc)
+  (@ b1 (eat b0))
+  (@ r  (read b1))
+  (@ b2 (Hd r))
+  (If (Eq end (Word8 b1)) acc
+    (Sap (readNested b2 read end)
+      (Sap acc (Ix0 r)))))
+\end{asm}
+
+
+\section{Parsing Wisp}
+
+Once we have read a Wisp s-expression, we
+
+\begin{itemize}
+\item Expand all macros.
+\item Resolve symbols to global bindings.
+\item Turn all expressions into applications.
+\item Run \lstinline|Force|
+\end{itemize}
+
+This is the entire system.  This is just the bare minimum to get
+from the language of text into the language of PLANs.  This should be
+\textbf{tiny}.
+
+\begin{enumerate}
+
+\item
+    The reader is very small
+\item
+    The parsing logic is trivial.
+\item
+    The namespace environment is small: just lookup/insert into an
+    unbalanced BST.
+\item
+    Compiling lambdas without lifting or let-optimization to laws is
+    very, very little code.
+\item
+    XPLAN means that we do not need to define our own primitives.
+\item
+\end{enumerate}
+
+And yet, it is still expressive enough to add basic syntax like [tuples],
+destructuring, and pattern matching on ADTs.
+
+\section{The Environment}
+
+Just two trivial operations, lookup and insert.
+
+\begin{asm}
+(= (getenv key x[k v m l r])
+  (And x
+    (Case3 (Compare key k)
+       (getenv key l)
+       x
+       (getenv key r))))
+
+(= (putenv key val mac x[k v m l r])
+  (Ifz x [key val mac 0 0]
+    (Case3 (Compare key k)
+      (Up 3 (putenv key val mac l) x)
+      [key val mac l r]
+      (Up 4 (putenv key val mac r) x))))
+\end{asm}
+
+
+\subsubsection{Loading ADT Parameters}
+
+The body parameter and capture symbols are used to construct a law for the
+branch, which is then called with each parameter and with the captures.
+Wisp does not have lambda lifting, so all captures must be explicit.
+
+\section{Compiling Functions}
+
+The only remaining piece of complexity is the built-in function macro:
+
+\begin{asm}
+bind = (@ var val)
+(function (self args..) bind.. expr)
+\end{asm}
+
+Without doing any validation, we parse into a minimal structure:
+
+\begin{verbatim}
+    self :: Text
+    args :: Row Text
+    binds :: (Text, Sexp)
+    body :: Sexp
+\end{verbatim}
+
+We can now produce a environment for mapping names in the local scope
+to numbers.
+
+Next, we run macro-expansion on all expressions.  Finally, we resolve
+symbols to local references or constant values (globals).
+
+The result is a n-ariy tree where values are either constant values or
+local references.
+
+\begin{verbatim}
+Expr :=
+    | VAL Plan
+    | LOC Nat
+    | APP Expr Expr..
+Function :=
+    name   :: Nat
+    args   :: Row Sym
+    lets   :: Row (Sym, Expr)
+    body   :: Expr
+    locals :: Map Sym Nat
+\end{verbatim}
+
+From here, we just need to compile the result to law, which is trivial.
+The name is the name from the input, the arity is the length of args.
+Each expression is transformed into a law expression, and the lets
+are chained.
+
+That's all!
+
+
+\section{Pattern Matching and Destructuring}
+
+These wont be features of Wisp itself, but we need to walk through this
+to be sure that this construct works, since building a Sire compiler in
+Wisp would be extremely difficult without this.
+
+\subsection{The case macro}
+
+Taking advantage of the fact that ADT constructors are now just numbers,
+we can implement a case macro with very little code.
+
+\begin{asm}
+constr = symbol
+branch = ((constr params..) (captures..) body)
+top = (case expr (branch..) fallback)
+\end{asm}
+
+Lookup each constr in the environment and find it's value.  If it's not
+an atom, crash.  Otherwise, insert into a table of handlers.
+
+Any gaps in the sequence of handler keys gets a nat.  Generate a switch
+via Ix.
+
+\subsection{Destructuring}
+
+Destructuring should be implemented by replacing the built-in
+implementation of the `Function` macro with one which understands
+destructuring.
+
+The logic doesn't change that much.  Each argument and let-binding that
+includes a destructuring will turn into a series of let-bindings (and
+seqs), so the result still compiles to a law in a straight-forward way.
+
+This feature is why we need gensym, so we will need to generate new
+symbols for unnamed patterns.
+
+The syntax supports both \listinline|!a| and \lstinline|![a b c]| syntax,
+though the former requires inspecting symbols to see if they start with
+an exclaimation.
+
+Instead of \lstinline|foo@[a b c]| we can use the
+\lstinline|foo[a b c]|, which is a short-hand for
+\lstinline|(foo [a b c])|.
+
+\end{document}

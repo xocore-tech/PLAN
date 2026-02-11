@@ -1,0 +1,91 @@
+E[o:(f x)] = Ef; Ho(Af)     I[e x, 0] = x
+E[<>]      = E[<>]          I[e x, n] = Ie(n-1)
+E[o]       = o              I[_, _]   = 0
+
+A(f x)     = Af-1           Rne(b:@) | b<=n = Ie(n-b)
+A{a m b}   = a              Rne(0 f x)      = Ef; Ex; (Rnef Rnex)
+A<{a m b}> = a              Rne(0 x)        = Ex; x
+A@         = 0              Rnex            = x
+A<i>       = 1
+                            S0(0 i)           = Ei; <i>
+Cp____<i>     = p i         S0(1 a m b)       = Ea; J(Na+1)mb
+C_l___{a m b} = l a m b     S0(2 p l a z m o) = Eo; Cplazmo
+C__a__(x e)   = a x e
+C___z_0       = z           Baneb(1 _ k) = Ek; B[a,n+1,(e <>),b,k]
+C____m(o:@)   = m (o-1)     Banebx       = Laneb
+
+N[x:@] = x                  Line(1 v b) = Ev; Eb; Iei#Rnev; L(i+1)neb
+N[_]   = 0                  Linex       = Rnex
+
+Ho1 = o#Xoo; Eo             X[<o:@> x, e]   = Ex; Sox
+Hoa = o                     X[f x, e]       = Xfe
+                            X[{a m b}, e]   = Baaebb
+Jamb = Eb; Baa0bb; {a m b}  X[<{a m b}>, e] = Baaebb
+
+--------------------------------------------------------------------------------
+
+The above is a specification for PLAN.  It's a reference interpreter
+written in a one-off imperative pseudo-code.
+
+These rules constitute a complete specification.  These rules are quite
+cryptic without an explanation.  Such an explanation follows.
+
+If you wish to stare at the rules for a bit before reading any prose,
+note that the F rule is what drives the system.
+
+The F rule takes a graph representing an input expression, traverses it
+recursively while performing a series of replacements.  The result of
+these replacements is that the input is morphed in-place into a graph
+representing the output value.
+
+Okay, new I will explain.
+
+PLAN is a functional programming system.
+
+It is also a data model meant to replace JSON.  You can think of PLAN
+as an alternative to JSON with support for truly first-class functions.
+
+In addition, it is also intended as a replacement for the IPLD system
+used by IPFS.  PLAN values are meant to be distributed accross the netork
+and distributed using content addressing.  This same model is used for
+storing large PLAN trees on disk
+
+PLAN is an acronym, named after it's data types: pins, laws, apps, and nats.
+
+Every PLAN value is either:
+
+- A pin: A wrapper which wraps another value (DAG links)
+
+- A law: A function (a lambda expression).
+
+- An app: A function application.
+
+- A nat: A natural number of any size.
+
+APPs are used to represent both unevaluated function calls (thunks)
+and partially applied functions (closures).
+
+PLAN evaluation is similar to the supercombinator-based graph-reduction
+strategy for evaluating the lazy lambda calculus.  Evaluation works by
+performing updates on the graph until it is fully evaluated.
+
+--------------------------------------------------------------------------------
+
+- The F[x] recursively evaluates the graph x.
+
+- o:<i> indicates a pin, o:{n a b} indicates a law, o:(f x) indicates
+  an app, and o:@ indicates a nat.
+
+- E[x,y] executes the procedure E with parameters x and y.
+
+- Ea means E[a], E(a b) means E[(a b)], Eab means E[a,b], etc.
+
+- (f x y) and "f x y" are a short-hand way to write ((f x) y).
+
+- o#x mutates o in place, updating it's value to equal x.
+
+- x;y indicates sequencing: run x for it's effects, and then return y.
+
+- Unmatched patterns diverge.
+
+- Subtraction on natural numbers is truncating: (0-1) = 0

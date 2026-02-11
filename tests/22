@@ -1,0 +1,36 @@
+cords
+
+(1P "Id"A     1A 1A E)         dup P
+(1P "Const"A  2A 1A E)         dup P
+(1P "Ignore"A 2A 2A E)         dup P
+(1P "Apply"A  2A (0 1A 2A)A E) dup P
+
+(7push) 5A _E.
+(6push) 5A _E.
+(1P "Apply"A 2A (0 1A 2A)A E)P dup (2 push) A 6A _E.
+dup (3 push)A    6A 7A _E.
+dup (4 push)A    6A 7A _E.
+dup (7 push)A    6A 7A _E.
+dup (8 push)A    6A 7A _E.
+dup (5 push 5A)A 6A 7A _E.
+
+drop drop drop drop drop drop drop drop drop
+
+cords
+0P \?
+	1P "Silly" A 2 A \?
+	1 0 1 A 2 AA
+	1 0 2 A 3 AA
+	1 0 3 A 4 AA
+	0 4 A 5 A
+\?
+	AAAAA
+\?
+	eval
+\?
+	9A 8A
+\?
+	eval
+\?
+	force
+\?

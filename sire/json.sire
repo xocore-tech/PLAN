@@ -1,0 +1,398 @@
+;;;; Copyright (c) 2026 xoCore Technologies
+;;;; SPDX-License-Identifier: MIT
+;;;; See LICENSE for full terms.
+#### json <- table
+
+; Copyright 2023 The Plunder Authors
+; Use of this source code is governed by a BSD-style license that can be
+; found in the LICENSE file.
+
+:| newboot
+:| table
+:| bar
+
+;;; Strict Application ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(sap f !x)=(f x)
+
+= (strScan str i e c)
+| If (Ge i e) e
+| If (c == Load8 i str) i
+| strScan str Inc-i e c
+
+( strScan "abc" 0 3 "a" =?= 0 )
+( strScan "abc" 0 3 "b" =?= 1 )
+( strScan "abc" 0 3 "c" =?= 2 )
+( strScan "abc" 0 3 "z" =?= 3 )
+
+;;; Lexing Strings of Zeros ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (consumeZeros str i)
+| Ifz {0}==(Load8 i str) i
+| consumeZeros str Inc-i
+
+=?= 0  | consumeZeros "+0000+" 0
+=?= 5  | consumeZeros "+0000+" 1
+=?= 5  | consumeZeros "+0000+" 2
+=?= 5  | consumeZeros "+0000+" 4
+=?= 5  | consumeZeros "+0000+" 5
+=?= 10 | consumeZeros "+0000+" 10
+
+;;; Lexing Strings ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;
+; appended: the list of chunks as if the current character is a stopping
+; boundary.
+= (lexStringLoop cur str !top !off)
+@ c | Load8 off str
+; it's like load8 doesn't see every other item. wat.
+@ appended | CONS (Load top (Sub off top) str) cur
+| If (c=={\})
+    @ n | Load8 Inc-off str
+    @ out
+        | If (n=={"})  {"}
+        | If (n=={\})  {\}
+        | If (n=={/})  {/}
+        | If (n=={b})  8    ; backspace
+        | If (n=={f})  12   ; formfeed
+        | If (n=={n})  10   ; new line
+        | If (n=={r})  13   ; carriage return
+        | If (n=={t})  9    ; tab
+        | If (n=={u})
+            | xtrace "todo: \u style unicode point"
+            | Die "todo: \u style unicode point"
+        | Die "todo: unhandled escaped character"
+    | lexStringLoop (CONS out appended) str (Add off 2) (Add off 2)
+| If (c=={"})
+    @ chunks | array | lrev appended
+    (strCat chunks, Inc off)
+| lexStringLoop cur str top Inc-off
+
+; Basic parser which doesn't deal with escapes, and kicks over to the escape
+; version when it finds one.
+= (lexStringBasic str top off)
+@ c | Load8 off str
+| Ifz c     | ##JsonErr "eof in string"
+| If c=={"} (Load top (Sub off top) str, Inc off)
+| If c=={\} | lexStringLoop NIL str top off
+| lexStringBasic str top Inc-off
+
+; > Nat > Nat > [off/Nat str/Nat]
+(lexString str off)=(lexStringBasic str off off)
+
+=?= ({fdsafdsa}, 10)
+  | lexString {"fdsafdsa"} 1
+
+=?= ({fdsafdsa"more}, 16)
+  | lexString {"fdsafdsa\"more"} 1
+
+=?= ({fdsafdsa\}, 12)
+  | lexString {"fdsafdsa\\"} 1
+
+;;; Ignore Whitespace ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (skipWs str i)
+@ c (Load8 i str)
+| Ifz (c==10 || c==" ") i
+| skipWs str Inc-i
+
+( skipWs "xy  ab" 1 =?= 1 )
+( skipWs "xy  ab" 2 =?= 4 )
+
+
+;;; Lexing Natural Numbers ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (readNat str acc i end)
+| If (Ge i end) acc
+@ !acc | Add (Mul 10 acc) (Sub (Load8 i str) 48)
+| readNat str acc Inc-i end
+
+= (consumeDigits str i)
+@ c (Load8 i str)
+| Ifz isDigit-c i
+| consumeDigits str Inc-i
+
+=?= 0 (consumeDigits {+1234+} 0)
+=?= 5 (consumeDigits {+1234+} 1)
+=?= 5 (consumeDigits {+1234+} 2)
+=?= 5 (consumeDigits {+1234+} 3)
+=?= 5 (consumeDigits {+1234+} 4)
+=?= 5 (consumeDigits {+1234+} 5)
+=?= 6 (consumeDigits {+1234+} 6)
+
+(readNat {+1234+} 0 1 5 =?= 1234)
+
+
+;;; JSON Representation ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(JNULL=0)(JTRUE=1)(JFALSE=2)(JSTR=3)(JNUM=4)(JVEC=5)(JOBJ=6)
+
+
+;;; Numbers (3.1415) ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= noDig | {No digits after dot (.)}
+
+= (mkJNum neg n deci expNeg exp)
+| Ifz (Add (Add neg deci) (Add expNeg exp))
+    | JNUM n
+| JNUM neg n deci expNeg exp
+
+= (consumeNeg str i)
+@ c (Load8 i str)
+| Add i c=="-"
+
+= (readExpo str i neg n deci)
+@ c    (Load8 i str)
+| If c!="e" | sap i (mkJNum neg n deci 0 0)
+@ j    (Inc i)
+@ k    (consumeNeg str j)
+@ eneg (Ne j k)
+@ l    (consumeDigits str k)
+| If l==k
+    | xtrace ["expected digit" c]
+    | ##JsonErr "expected digit"
+@ exp  (readNat str 0 k l)
+| sap l (mkJNum neg n deci eneg exp)
+
+= (parseNumber neg str i)
+| Profile parseNumber
+@ eDigit
+    | xtrace ["expected digit" c]
+    | ##JsonErr "expected digit"
+@ j | consumeDigits str i
+| If i==j eDigit
+@ !n | readNat str 0 i j
+| Ifz "."==(Load8 j str)
+    | readExpo str j neg n 0
+@ j | Inc j               ; j = after .
+@ k | consumeDigits str j ; k = after .123
+| If j==k eDigit
+@ !m | readNat str 0 j k
+| readExpo str k neg n m
+
+( parseNumber 0 "#1234#"        1 =?= 5  (JNUM 1234)           )
+( parseNumber 0 "#1234#"        2 =?= 5  (JNUM 234)            )
+( parseNumber 0 "#1234.567#"    1 =?= 9  (JNUM 0 1234 567 0 0) )
+( parseNumber 0 "#1234.567e3#"  1 =?= 11 (JNUM 0 1234 567 0 3) )
+( parseNumber 0 "#1234.567e-3#" 1 =?= 12 (JNUM 0 1234 567 1 3) )
+
+
+;;; JSON ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+dquote=34
+
+(Trace a b)=b
+
+= (expectChar str i c)
+;| Trace | "expectChar" (strWeld "expect-" c) "at" i
+| If (Ne c (Load8 i str))
+    | xtrace ["expected" c " at " i]
+    | ##JsonErr | strCat ["expected " c " at "] i
+| Inc i
+
+= (expect str i exp)
+@ n (Bytes exp)
+| If (Eq exp | Load i n str) (Add i n)
+| xtrace ["expected" exp " at " i]
+| ##JsonErr | "expected" exp "at" i
+
+= (parseObjectLoop parseValue str acc i)
+@ i (skipWs str i)
+@ c (Load8 i str)
+@ j (Inc i)
+| If c=="}" | (!o @ tableFromBst JOBJ acc)(j o)
+| If c!=","
+    | xtrace ["expected comma at " i]
+    | ##JsonErr | "expected comma at" i
+@ i         | skipWs str j
+@ i         | expectChar str i dquote
+@ [key j]   | lexString str i
+@ i         | skipWs str j
+@ i         | expectChar str i ":"
+@ r@[val]   | parseValue str i
+@ i         | Hd r
+| Strict 2 key i
+| parseObjectLoop parseValue str (bstIns key val acc) i
+
+= (parseObject parseValue str i)
+| Profile parseObject
+@ i (skipWs str i)
+@ c (Load8 i str)
+@ i (Inc i)
+| If c=="}" (i JOBJ)
+@ [key j] | lexString str i
+@ i       | skipWs str j
+@ i       | expectChar str i ":"
+@ r@[val] | parseValue str i
+@ i       | Hd r
+| Strict 2 key i
+| parseObjectLoop parseValue str (bstSing key val) i
+
+= (parseArrayLoop parseValue str !acc i)
+@ i          | skipWs str i
+@ c          | Load8 i str
+@ j          | Inc-i
+| If c=="]"  | sap j acc
+| Ifz c==","
+    | xtrace ["expected comma at " i]
+    | ##JsonErr ("expected comma at" i)
+@ r@[val]    | parseValue str j
+| parseArrayLoop parseValue str acc-val (Hd r)
+
+= (parseArray parseValue str i)
+| Profile parseArray
+@ i         | skipWs str i
+@ c         | Load8 i str
+| If c=="]" | sap Inc-i JVEC
+@ r@[val]   | parseValue str i
+@ !i        | Hd r
+| parseArrayLoop parseValue str JVEC-val i
+
+= parseKeys } ntf"[{-
+__={"}
+
+= (parseString str i)
+| Profile parseString
+@ [s j] | lexString str i
+| j (JSTR s)
+
+= (parseValue str i)
+@ i (skipWs str i)
+@ c (Load8 i str)
+@ j (Inc i)
+^ Case strScan-parseKeys-0-7-c _
+    | If (isDigit c) (parseNumber 0 str i)
+    | xtrace ["unexpected" c]
+    | ##JsonErr ("unexpected" c)
+++ expect str i "null"  JNULL
+++ expect str i "true"  JTRUE
+++ expect str i "false" JFALSE
+++ parseString str j
+++ parseArray parseValue str j
+++ parseObject parseValue str j
+++ parseNumber 1 str j
+
+= (parseJson str)
+| Profile parseJson
+| Ix0 | parseValue str 0
+
+;;; JSON Tests ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= ex0 } ["x", "y", null, true, false]
+= ex1 } [3, 4, 56.78]
+= ex2 } {"tag": "Search", "contents": {"offset":5, "tags":["x"]}}}
+
+( parseString ex0 2 =?= 4 (JSTR "x") )
+
+=?= (parseValue ex0 0)
+    | 29
+    | JVEC (JSTR "x") (JSTR "y") JNULL JTRUE JFALSE
+
+=?= (parseJson ex1)
+    | JVEC (JNUM 3) (JNUM 4) (JNUM 0 56 78 0 0)
+
+;  =?= (parseJson ex2)
+;      | JOBJ
+;        "tag"
+;        "contents"
+;        (JSTR "Search")
+;        (JOBJ "tags" "offset" (JVEC (JSTR "x")) (JNUM 5))
+
+;  =?= | map parseJson
+;     ++ } {}
+;     ++ } {  }
+;     ++ } {"a":null}
+;     ++ } { "a" : null }
+;   ++ JOBJ
+;   ++ JOBJ
+;   ++ JOBJ "a" JNULL
+;   ++ JOBJ "a" JNULL
+
+;  =?= | map parseJson
+;     ++ } {"b":true,"c":false}
+;     ++ } { "b" : true , "c" : false }
+;   ++ JOBJ "b" "c" JTRUE JFALSE
+;   ++ JOBJ "b" "c" JTRUE JFALSE
+
+
+;;; JSON Printer ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+= (bsTreeToList x)
+| If IsNat-x | CONS x 0
+| If IsApp-x | lcatmap bsTreeToList (stream x)
+| NIL
+
+=?= NIL                       | bsTreeToList bsTreeToList
+=?= [b#foo [b#bar [b#zaz 0]]] | bsTreeToList (0 [[b#foo] b#bar b#zaz])
+=?= [b#foo [b#bar [b#zaz 0]]] | bsTreeToList [b#foo b#bar b#zaz]
+
+; TODO: OK, so the following are apparently not synonyms. The one liner form is
+; parsed by (bsFlat a)=(bsCat array bsTreeToList-a) in the terminal. WTF!
+;
+;  (bsFlat x)=(bsCat | array | bsTreeToList x)
+= (bsFlat x)
+| bsCat | array | bsTreeToList x
+
+=?= b#foobarzaz | bsFlat (0 [[b#foo] b#bar b#zaz])
+
+= (printVec go vec)
+^ [b#{[} _ b#{]}]
+| intersperse b#{,}
+| map go vec
+
+= (printObj go map)
+^ [b#}_{_ _ b#}_}_]
+| intersperse b#{,}
+| array
+: [k v] < lforeach | tableToPairList map
+| (go (JSTR k), b#{:}, go v)
+
+= (printJson input)
+^ (bsFlat (_ input))
+? (go json)
+^ Switch [JNULL JTRUE JFALSE JSTR JNUM JVEC JOBJ] (Hd json) _ (##BadJson json)
+++ ; JNULL
+   b#{null}
+++ ; JTRUE
+   b#{true}
+++ ; JFALSE
+   b#{false}
+++ ; JSTR
+   [b#{"} (bsFromNat | Ix 0 json) b#{"}]
+++ ; JNUM
+   | bsFromNat | showNat | Ix 0 json ; TODO: complex numbers.
+++ ; JVEC
+   | printVec go json
+++ ; JOBJ
+   | printObj go json
+
+=?= b#{"hi"}
+  | printJson (JSTR "hi")
+
+=?= b#{["hi",null,true,false,99]}
+  | printJson
+  | JVEC (JSTR "hi") JNULL JTRUE JFALSE (JNUM 99)
+
+; The table code doesn't reliably preserve Hd, even when calling
+; `tableFromPairsHd`. Hack to use Coup afterwards instead.
+= (mkJOBJHack row)
+| Coup JOBJ
+| tableFromPairs row
+
+;  =?= b#{{"null":null,"bools":[true,false]}}
+;    | printJson
+;    | mkJOBJHack
+;   ++ ["null" JNULL]
+;   ++ ["bools" (JVEC JTRUE JFALSE)]
+
+;  =?= b#{["a","b","c","d"]}
+;    | printJson
+;    | JVEC (JSTR "a") (JSTR "b") (JSTR "c") (JSTR "d")
+
+;  =?= b#{{"a":true,"b":false,"c":true,"d":false}}
+;    | printJson
+;    | mkJOBJHack
+;   ++ ["a" JTRUE]
+;   ++ ["b" JFALSE]
+;   ++ ["c" JTRUE]
+;   ++ ["d" JFALSE]

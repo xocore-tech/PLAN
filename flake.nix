@@ -14,6 +14,8 @@
           inherit (pkgs.texlive)
             scheme-small   # minimal base LaTeX
             needspace
+            lacheck
+            comment
             tcolorbox
             latexmk;       # build tool
         };

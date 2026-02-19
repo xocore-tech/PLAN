@@ -4026,17 +4026,18 @@ explore_max_idx: .quad 0
 Once the \lstinline|explore_tree| is filled, it "explores", meaning it looks at
 completed explore structure to find live items and then recurse into its
 dependencies. The sweep tree should have every live allocation reachable from
-the items marked in the explore_tree.
+the items marked in the \lstinline|explore_tree|.
 
 \begin{asmdata}
 .global sweep_tree_ptr
 sweep_tree_ptr: .quad 0
 \end{asmdata}
 
-But we need a second area to mark freshly malloced items that were generated
-while the exploration and sweeping were in progress. We don't want to overload
-the sweep_tree_ptr because you then confuse marking new items with whether
-you've recursively iterated through them, leading to undermarking.
+But we need a second area to mark freshly malloced items that were
+generated while the exploration and sweeping were in progress. We don't
+want to overload the \lstinline|sweep_tree_ptr| because you then confuse marking
+new items with whether you've recursively iterated through them, leading
+to undermarking.
 
 \begin{asmdata}
 .global new_allocation_ptr
@@ -4130,10 +4131,10 @@ atomic_max.done:                            # done:
 
 \subsubsection{project\_or}
 
-Given a 64-bit word of child mark bits (packed as [child0, child1, child2,
-... child63], where the children for parent i are at positions \lstinline|2*i|
-and \lstinline|2*i+1|), compute for each parent: parent's bit =
-\lstinline|child_left| OR \lstinline|child_right|.
+Given a 64-bit word of child mark bits (packed as [child0, child1,
+child2, ... child63], where the children for parent i are at positions
+\lstinline|2*i| and \lstinline|2*i+1|), compute for each parent: parent's
+bit = \lstinline|child_left| OR \lstinline|child_right|.
 
 This is done by:
 
@@ -4141,7 +4142,7 @@ This is done by:
 \item Shifting a copy of the 64-bit word
 \item ORing it with the original 64-bit word.
 \item Using PEXT to extract even-indexed bits (mask 0x5555...5555)
-\end{item}
+\end{itemize}
 
 \lstinline|project_or| expects its output to be pre-zeroed. It takes advantage
 of this fact by skipping running any bit manipulation code on any zero input

@@ -1,7 +1,8 @@
 \documentclass[11pt]{article}
 
-\AtBeginDocument{\pagenumbering{gobble}} % stops page numbers globally
+\usepackage{fancyhdr}
 \pagestyle{empty}
+\fancypagestyle{plain}{\pagestyle{empty}}
 
 \usepackage{listings}
 \usepackage[T1]{fontenc}

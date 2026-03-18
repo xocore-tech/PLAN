@@ -4275,6 +4275,10 @@ boot_start:
 	mov	rbp, rsp
 	add	rsp, -32
 
+	mov	rdi, 3
+	mov	rax, SYS_CLOSE		# close(3) in case its open
+	syscall				# ignore errors (FD might not exist)
+
 	mov	rax, SYS_OPEN
 	lea	rdi, [proc_self_exe]	# open current executable
 	mov	rsi, O_RDONLY		# no O_CLOEXEC so hold across exec
